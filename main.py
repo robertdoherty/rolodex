@@ -168,6 +168,46 @@ def search_person(name: str):
 
 
 @cli.command()
+@click.argument("name")
+@click.option("--id", "-i", "interaction_id", type=int, default=None, help="Specific interaction ID")
+def transcript(name: str, interaction_id: int | None):
+    """View the transcript for a person's interaction."""
+    p = get_person(name)
+    if p is None:
+        click.echo(f"Person '{name}' not found.")
+        return
+
+    interactions = get_interactions(name)
+    if not interactions:
+        click.echo(f"No interactions found for '{name}'.")
+        return
+
+    if interaction_id is not None:
+        interactions = [i for i in interactions if i.id == interaction_id]
+        if not interactions:
+            click.echo(f"Interaction {interaction_id} not found for '{name}'.")
+            return
+
+    for interaction in interactions:
+        tags_str = ", ".join(t.value for t in interaction.tags)
+        click.echo(f"\n{'='*60}")
+        click.echo(f"Interaction #{interaction.id} — {interaction.date.strftime('%Y-%m-%d')} — Tags: {tags_str}")
+        click.echo(f"{'='*60}\n")
+
+        utterances = interaction.transcript.get("utterances", [])
+        if utterances:
+            for u in utterances:
+                click.echo(f"  Speaker {u['speaker']}: {u['text']}")
+        else:
+            text = interaction.transcript.get("text", "")
+            if text:
+                click.echo(text)
+            else:
+                click.echo("  (no transcript available)")
+        click.echo()
+
+
+@cli.command()
 def tags():
     """List all available tags with descriptions."""
     click.echo("\nAvailable Tags:\n")

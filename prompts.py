@@ -1,9 +1,34 @@
 """LLM prompts for the Rolodex interview intelligence system."""
 
+# Speaker identification prompt - identifies who each speaker is
+SPEAKER_IDENTIFICATION_PROMPT = """You are analyzing a transcript to identify who each speaker is.
+
+The transcript contains speakers labeled A, B, C, etc. Your task is to identify:
+1. Which speaker is the SUBJECT being interviewed (the person we want to learn about)
+2. Which speakers are the INTERVIEWERS (the people asking questions)
+
+Look for clues like:
+- Introductions ("I'm [name] from [company]")
+- Who asks questions vs who answers them
+- References to their role/company/background
+- The subject typically shares expertise, experiences, and opinions about their work
+
+## Subject Name (the person being interviewed)
+{subject_name}
+
+## Transcript
+{transcript}
+
+Identify which speaker letter (A, B, C, etc.) is the subject being interviewed."""
+
 # Base analysis prompt - shared structure across person types
 _BASE_ANALYSIS_PROMPT = """You are analyzing a transcript of a recorded conversation.
 
 Your task is to extract key takeaways and assign relevant thematic tags.
+
+IMPORTANT: The SUBJECT of this interview is {subject_name} (Speaker {subject_speaker}).
+Only extract insights, opinions, and information shared BY the subject.
+Ignore statements made by the interviewers - we only care about what the subject said.
 
 ## Available Tags
 - PRICING: Pricing models, willingness to pay, cost concerns
@@ -14,14 +39,15 @@ Your task is to extract key takeaways and assign relevant thematic tags.
 
 ## Instructions
 1. Read the transcript carefully
-2. Extract 3-7 key takeaways - specific, actionable insights from the conversation
+2. Extract 3-7 key takeaways from what {subject_name} (Speaker {subject_speaker}) said
 3. Assign 1-3 relevant tags that best categorize the main themes discussed
 4. Be specific and concrete - avoid vague generalizations
+5. Focus ONLY on the subject's statements, not the interviewers' questions or comments
 
 ## Transcript
 {transcript}
 
-Extract the key takeaways and assign relevant tags."""
+Extract the key takeaways from {subject_name}'s statements and assign relevant tags."""
 
 CUSTOMER_ANALYSIS_PROMPT = _BASE_ANALYSIS_PROMPT
 INVESTOR_ANALYSIS_PROMPT = _BASE_ANALYSIS_PROMPT

@@ -9,7 +9,7 @@ from database import (
     update_person_state,
 )
 from models import Interaction
-from services.analysis import analyze_interaction, generate_rolling_update
+from services.analysis import analyze_interaction, generate_rolling_update, identify_subject_speaker
 from services.transcription import transcribe_video
 
 
@@ -21,14 +21,14 @@ def ingest_recording(
     """Ingest a recording through the full pipeline.
 
     Pipeline steps:
-    1. Extract audio from video
-    2. Transcribe with speaker diarization
-    3. Analyze interaction (extract takeaways + tags)
+    1. Extract audio and transcribe with speaker diarization
+    2. Identify which speaker is the subject
+    3. Analyze interaction (extract takeaways + tags from subject only)
     4. Generate rolling update (delta + state_of_play)
     5. Store interaction and update person
 
     Args:
-        video_path: Path to the video file (mp4, etc.)
+        video_path: Path to the video/audio file (mp4, m4a, etc.)
         person_name: Name of the person in the recording
         date: Date of the interaction (defaults to now)
 
@@ -41,7 +41,7 @@ def ingest_recording(
     """
     video_path = Path(video_path)
     if not video_path.exists():
-        raise FileNotFoundError(f"Video file not found: {video_path}")
+        raise FileNotFoundError(f"File not found: {video_path}")
 
     person = get_person(person_name)
     if person is None:
@@ -52,19 +52,27 @@ def ingest_recording(
     if date is None:
         date = datetime.now()
 
-    print(f"[1/5] Extracting audio and transcribing...")
+    print(f"[1/6] Extracting audio and transcribing...")
     transcript = transcribe_video(video_path)
 
-    print(f"[2/5] Analyzing interaction...")
-    takeaways, tags = analyze_interaction(transcript, person.type)
+    print(f"[2/6] Identifying subject speaker...")
+    subject_speaker = identify_subject_speaker(transcript, person_name)
 
-    print(f"[3/5] Generating rolling update...")
+    print(f"[3/6] Analyzing interaction (focusing on {person_name}'s statements)...")
+    takeaways, tags = analyze_interaction(
+        transcript,
+        person.type,
+        subject_name=person_name,
+        subject_speaker=subject_speaker,
+    )
+
+    print(f"[4/6] Generating rolling update...")
     delta, updated_state = generate_rolling_update(
         person.state_of_play,
         takeaways,
     )
 
-    print(f"[4/5] Storing interaction...")
+    print(f"[5/6] Storing interaction...")
     interaction = create_interaction(
         person_name=person_name,
         date=date,
@@ -73,7 +81,7 @@ def ingest_recording(
         tags=tags,
     )
 
-    print(f"[5/5] Updating person state...")
+    print(f"[6/6] Updating person state...")
     update_person_state(
         name=person_name,
         state_of_play=updated_state,

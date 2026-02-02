@@ -29,9 +29,11 @@ TAG_DESCRIPTIONS = {
 }
 
 # Model settings
-MODEL_NAME = "gemini-1.5-flash"
+MODEL_NAME = "gemini-2.5-flash"
 MODEL_TEMPERATURE = 0.3
-MODEL_MAX_TOKENS = 4096
+SPEAKER_ID_MAX_TOKENS = 1024
+ANALYSIS_MAX_TOKENS = 16384
+ROLLING_UPDATE_MAX_TOKENS = 4096
 
 # Database settings
 BASE_DIR = Path(__file__).parent

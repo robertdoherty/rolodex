@@ -166,7 +166,7 @@ Key settings in `config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MODEL_NAME` | gemini-1.5-flash | LLM model for analysis |
+| `MODEL_NAME` | gemini-2.5-flash | LLM model for analysis |
 | `MODEL_TEMPERATURE` | 0.3 | Low temperature for factual output |
 | `MODEL_MAX_TOKENS` | 4096 | Max response length |
 | `DATABASE_PATH` | data/rolodex.db | SQLite database location |
