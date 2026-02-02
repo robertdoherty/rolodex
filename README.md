@@ -12,76 +12,109 @@ Rolodex is a person-centric knowledge management tool for tracking how customers
 
 ```
 rolodex/
-├── main.py                 # CLI entry point (Click-based)
-├── config.py               # Configuration and enums
-├── models.py               # Data classes (Person, Interaction)
-├── database.py             # SQLite storage layer
-├── prompts.py              # LLM prompt templates
-├── local_secrets.py        # API keys (gitignored)
-├── services/
-│   ├── ingestion.py        # Main pipeline orchestrator
-│   ├── transcription.py    # Audio extraction & transcription
-│   └── analysis.py         # LLM-based analysis
-└── data/
-    └── rolodex.db          # SQLite database
+├── backend/
+│   ├── main.py                 # CLI entry point (Click-based)
+│   ├── config.py               # Configuration and enums
+│   ├── models.py               # Data classes (Person, Interaction, InteractionAnalysis, RollingUpdate)
+│   ├── database.py             # SQLite storage layer
+│   ├── prompts.py              # LLM prompt templates
+│   ├── local_secrets.py        # API keys (gitignored)
+│   ├── services/
+│   │   ├── ingestion.py        # Main pipeline orchestrator
+│   │   ├── transcription.py    # Audio extraction & transcription
+│   │   └── analysis.py         # LLM-based analysis (speaker ID, interaction, rolling update)
+│   └── data/
+│       └── rolodex.db          # SQLite database
+└── README.md
 ```
 
 ## Data Model
 
+```mermaid
+erDiagram
+    persons ||--o{ interactions : "has many"
+    persons {
+        text name PK "Primary identifier"
+        text current_company "Organization affiliation"
+        text type "customer | investor | competitor"
+        text background "Static bio / context"
+        text state_of_play "AI-updated rolling summary (~200 words)"
+        text last_delta "What changed in most recent meeting"
+    }
+    interactions {
+        integer id PK "Auto-generated"
+        text person_name FK "References persons.name"
+        text date "ISO 8601 date string"
+        text transcript "JSON: speaker-tagged utterances"
+        text takeaways "JSON: list of 3-7 insight strings"
+        text tags "JSON: list of 1-3 tag strings"
+    }
+```
+
 ### Person
+
 The core entity representing an individual contact:
-- **name**: Primary identifier
+
+- **name** (PK): Primary identifier
 - **current_company**: Organization affiliation
 - **type**: `customer` | `investor` | `competitor`
-- **background**: Context about the person
-- **state_of_play**: AI-generated ~200-word rolling summary
+- **background**: Static bio / context
+- **state_of_play**: AI-generated ~200-word rolling summary that evolves with each interaction
 - **last_delta**: What changed in the most recent meeting
+- **interaction_ids** (derived, not stored): List of linked interaction IDs, populated by querying the interactions table
 
 ### Interaction
+
 A single recorded conversation:
-- **person_name**: Links to Person
-- **date**: When the interaction occurred
-- **transcript**: Speaker-tagged utterances
-- **takeaways**: 3-7 key insights extracted by LLM
-- **tags**: 1-3 thematic tags (pricing, product, gtm, competitors, market)
+
+- **id** (PK): Auto-incremented integer
+- **person_name** (FK): References `persons.name`
+- **date**: When the interaction occurred (stored as ISO 8601 string)
+- **transcript**: Speaker-tagged utterances stored as JSON with structure:
+  ```json
+  {
+    "text": "Full transcript text",
+    "utterances": [
+      {"speaker": "Aidan Smith", "text": "...", "start": 0, "end": 1000}
+    ]
+  }
+  ```
+- **takeaways**: 3-7 key insights extracted by LLM (stored as JSON array)
+- **tags**: 1-3 thematic tags (stored as JSON array of strings)
+
+### Internal Dataclasses
+
+These are used within the pipeline but not persisted directly:
+
+- **InteractionAnalysis**: Holds `takeaways` (list[str]) and `tags` (list[Tag]) returned by the analysis LLM call
+- **RollingUpdate**: Holds `delta` (str) and `updated_state` (str) returned by the rolling update LLM call
 
 ## Pipeline Flow
 
-The ingestion pipeline processes recordings in 5 steps:
+The ingestion pipeline processes recordings in 6 steps:
 
+```mermaid
+flowchart TD
+    A["Audio/Video File"] --> B["1. Extract Audio & Transcribe\n(ffmpeg + AssemblyAI diarization)"]
+    B --> C["2. Identify Subject Speaker\n(LLM determines which speaker is the subject)"]
+    C --> D["3. Analyze Interaction\n(LLM extracts takeaways + tags from subject's statements)"]
+    D --> E["4. Generate Rolling Update\n(LLM compares old state_of_play with new takeaways)"]
+    E --> F["5. Store Interaction\n(Save to SQLite)"]
+    F --> G["6. Update Person State\n(Write new state_of_play + last_delta)"]
 ```
-Video File
-    │
-    ▼
-┌─────────────────────────────────────┐
-│ 1. Extract Audio & Transcribe       │
-│    (ffmpeg + AssemblyAI diarization)│
-└─────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────┐
-│ 2. Analyze Interaction              │
-│    (LLM extracts takeaways + tags)  │
-└─────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────┐
-│ 3. Generate Rolling Update          │
-│    (LLM compares old state + new)   │
-└─────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────┐
-│ 4. Store Interaction                │
-│    (Save to SQLite)                 │
-└─────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────┐
-│ 5. Update Person State              │
-│    (state_of_play + last_delta)     │
-└─────────────────────────────────────┘
-```
+
+### Step Details
+
+| Step | Module | LLM Call | Output |
+|------|--------|----------|--------|
+| 1. Extract & Transcribe | `transcription.py` | No (AssemblyAI API) | Speaker-diarized transcript dict |
+| 2. Identify Speaker | `analysis.py` | Yes (`SpeakerIdentificationSchema`) | Speaker letter (A, B, C...) |
+| 3. Analyze Interaction | `analysis.py` | Yes (`InteractionAnalysisSchema`) | Takeaways + tags |
+| 4. Rolling Update | `analysis.py` | Yes (`RollingUpdateSchema`) | Delta + updated state |
+| 5. Store Interaction | `database.py` | No | Interaction row in SQLite |
+| 6. Update Person | `database.py` | No | Updated person row in SQLite |
+
+After speaker identification (step 2), speakers are relabeled: the subject gets their real name, others become "Interviewer 1", "Interviewer 2", etc.
 
 ## Installation
 
@@ -104,13 +137,15 @@ cd rolodex
 pip install -r requirements.txt
 ```
 
-3. Configure API keys in `local_secrets.py`:
+3. Configure API keys in `backend/local_secrets.py`:
 ```python
 ASSEMBLYAI_API_KEY = "your-assemblyai-key"
 GEMINI_API_KEY = "your-gemini-key"
 ```
 
 ## Usage
+
+All commands run from the `backend/` directory.
 
 ### Person Management
 
@@ -130,7 +165,17 @@ python main.py person show "Jane Doe"
 
 ```bash
 # Process a recording for a person
-python main.py ingest path/to/video.mp4 --person "Jane Doe" --date 2024-01-15
+python main.py ingest path/to/recording.m4a --person "Jane Doe" --date 2024-01-15
+```
+
+### Viewing Transcripts
+
+```bash
+# View all transcripts for a person
+python main.py transcript "Jane Doe"
+
+# View a specific interaction's transcript by ID
+python main.py transcript "Jane Doe" --id 1
 ```
 
 ### Search & Discovery
@@ -151,27 +196,29 @@ python main.py tags
 
 | Module | Responsibility |
 |--------|----------------|
-| `main.py` | CLI interface with Click commands |
-| `config.py` | Constants, enums (PersonType, Tag), API settings |
-| `models.py` | Dataclass definitions (Person, Interaction) |
-| `database.py` | SQLite CRUD operations |
-| `prompts.py` | LLM prompt templates |
-| `services/transcription.py` | Audio extraction, speaker diarization |
-| `services/analysis.py` | LLM-powered analysis (Gemini) |
-| `services/ingestion.py` | Pipeline orchestration |
+| `backend/main.py` | CLI interface with Click commands |
+| `backend/config.py` | Constants, enums (PersonType, Tag), model token limits |
+| `backend/models.py` | Dataclass definitions (Person, Interaction, InteractionAnalysis, RollingUpdate) |
+| `backend/database.py` | SQLite CRUD operations |
+| `backend/prompts.py` | LLM prompt templates |
+| `backend/services/transcription.py` | Audio extraction (ffmpeg), speaker diarization (AssemblyAI) |
+| `backend/services/analysis.py` | LLM-powered analysis: speaker ID, interaction analysis, rolling updates |
+| `backend/services/ingestion.py` | Pipeline orchestration (6-step flow) |
 
 ## Configuration
 
-Key settings in `config.py`:
+Key settings in `backend/config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MODEL_NAME` | gemini-2.5-flash | LLM model for analysis |
-| `MODEL_TEMPERATURE` | 0.3 | Low temperature for factual output |
-| `MODEL_MAX_TOKENS` | 4096 | Max response length |
-| `DATABASE_PATH` | data/rolodex.db | SQLite database location |
-| `AUDIO_FORMAT` | wav | Extracted audio format |
-| `AUDIO_SAMPLE_RATE` | 16000 | Audio sample rate |
+| `MODEL_NAME` | `gemini-2.5-flash` | LLM model for analysis |
+| `MODEL_TEMPERATURE` | `0.3` | Low temperature for factual output |
+| `SPEAKER_ID_MAX_TOKENS` | `1024` | Max output tokens for speaker identification |
+| `ANALYSIS_MAX_TOKENS` | `16384` | Max output tokens for interaction analysis |
+| `ROLLING_UPDATE_MAX_TOKENS` | `4096` | Max output tokens for rolling updates |
+| `DATABASE_PATH` | `data/rolodex.db` | SQLite database location |
+| `AUDIO_FORMAT` | `wav` | Extracted audio format |
+| `AUDIO_SAMPLE_RATE` | `16000` | Audio sample rate |
 
 ## Tags
 
@@ -199,6 +246,7 @@ pydantic>=2.0.0           # Data validation
 
 - **Stateful AI**: Person profiles maintain AI-generated state that evolves with each interaction
 - **Structured LLM Output**: Pydantic schemas with LangChain's `with_structured_output()` for reliable JSON
+- **Per-Call Token Budgets**: Each LLM call gets a token limit matched to its expected output size
 - **Service Layer**: Business logic separated into services (transcription, analysis, ingestion)
 - **Command Pattern**: Click groups organize CLI commands hierarchically
 - **Type Safety**: Enums (PersonType, Tag) and dataclasses throughout

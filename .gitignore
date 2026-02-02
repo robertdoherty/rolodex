@@ -1,8 +1,8 @@
 # Secrets
-local_secrets.py
+backend/local_secrets.py
 
 # Database
-data/rolodex.db
+backend/data/rolodex.db
 
 # Python
 __pycache__/
