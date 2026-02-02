@@ -1,0 +1,307 @@
+"""Interactive REPL shell with filesystem-style navigation."""
+
+import shlex
+from datetime import datetime
+from pathlib import Path
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.history import FileHistory
+
+import vfs
+from config import PersonType, Tag, TAG_DESCRIPTIONS
+from database import (
+    create_person,
+    get_interactions_by_tag,
+    init_db,
+)
+from services.ingestion import ingest_recording
+
+
+COMMANDS = ["ls", "cd", "cat", "tree", "pwd", "ingest", "mkperson", "search", "tags", "help", "exit"]
+
+
+class RolodexCompleter(Completer):
+    """Tab completion aware of virtual filesystem paths and commands."""
+
+    def __init__(self, shell: "RolodexShell"):
+        self.shell = shell
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        words = text.split()
+
+        # Complete command name
+        if len(words) == 0 or (len(words) == 1 and not text.endswith(" ")):
+            partial = words[0] if words else ""
+            for cmd in COMMANDS:
+                if cmd.startswith(partial):
+                    yield Completion(cmd, start_position=-len(partial))
+            return
+
+        # Complete paths for ls, cd, cat, tree
+        if words[0] in ("ls", "cd", "cat", "tree"):
+            partial = words[-1] if len(words) > 1 and not text.endswith(" ") else ""
+            if text.endswith(" "):
+                partial = ""
+
+            # Determine the directory to list completions from
+            if "/" in partial:
+                last_slash = partial.rfind("/")
+                dir_part = partial[: last_slash + 1] if last_slash >= 0 else ""
+                name_part = partial[last_slash + 1 :]
+            else:
+                dir_part = ""
+                name_part = partial
+
+            if dir_part:
+                dir_path = vfs.resolve_path(self.shell.cwd, dir_part)
+            else:
+                dir_path = self.shell.cwd
+
+            node = vfs.resolve(dir_path)
+            if node is None or not node.is_dir:
+                return
+
+            for child in node.children:
+                if child.startswith(name_part):
+                    yield Completion(
+                        dir_part + child,
+                        start_position=-len(partial),
+                    )
+
+
+class RolodexShell:
+    """Interactive REPL with filesystem-style navigation."""
+
+    def __init__(self):
+        init_db()
+        self.cwd = "/"
+        history_path = Path.home() / ".rolodex_history"
+        self.session: PromptSession = PromptSession(
+            history=FileHistory(str(history_path)),
+            completer=RolodexCompleter(self),
+        )
+
+    def get_prompt(self) -> str:
+        return f"rolodex:{self.cwd}$ "
+
+    def run(self) -> None:
+        """Main REPL loop."""
+        print("Rolodex Shell — type 'help' for commands, 'exit' to quit")
+        while True:
+            try:
+                text = self.session.prompt(self.get_prompt()).strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+
+            if not text:
+                continue
+
+            try:
+                args = shlex.split(text)
+            except ValueError as e:
+                print(f"Parse error: {e}")
+                continue
+
+            cmd = args[0]
+            cmd_args = args[1:]
+
+            handler = getattr(self, f"cmd_{cmd}", None)
+            if handler is None:
+                print(f"Unknown command: {cmd}")
+                continue
+
+            try:
+                handler(cmd_args)
+            except Exception as e:
+                print(f"Error: {e}")
+
+    # ── Commands ──────────────────────────────────────────────
+
+    def cmd_pwd(self, args: list[str]) -> None:
+        print(self.cwd)
+
+    def cmd_ls(self, args: list[str]) -> None:
+        target = args[0] if args else "."
+        path = vfs.resolve_path(self.cwd, target)
+        node = vfs.resolve(path)
+
+        if node is None:
+            print(f"ls: cannot access '{target}': No such file or directory")
+            return
+
+        if not node.is_dir:
+            print(node.name)
+            return
+
+        for child in node.children:
+            print(child)
+
+    def cmd_cd(self, args: list[str]) -> None:
+        target = args[0] if args else "/"
+        path = vfs.resolve_path(self.cwd, target)
+        node = vfs.resolve(path)
+
+        if node is None:
+            print(f"cd: no such directory: {target}")
+            return
+
+        if not node.is_dir:
+            print(f"cd: not a directory: {target}")
+            return
+
+        self.cwd = node.path
+
+    def cmd_cat(self, args: list[str]) -> None:
+        if not args:
+            print("Usage: cat <path>")
+            return
+
+        target = args[0]
+        path = vfs.resolve_path(self.cwd, target)
+        node = vfs.resolve(path)
+
+        if node is None:
+            print(f"cat: {target}: No such file or directory")
+            return
+
+        if node.is_dir:
+            print(f"cat: {target}: Is a directory")
+            return
+
+        print(node.content)
+
+    def cmd_tree(self, args: list[str]) -> None:
+        target = args[0] if args else "."
+        path = vfs.resolve_path(self.cwd, target)
+        print(vfs.tree(path))
+
+    def cmd_ingest(self, args: list[str]) -> None:
+        if len(args) < 1:
+            print("Usage: ingest <video_path> --person <name> [--date YYYY-MM-DD]")
+            return
+
+        video_path = args[0]
+        person_name = None
+        date = None
+
+        i = 1
+        while i < len(args):
+            if args[i] in ("--person", "-p") and i + 1 < len(args):
+                person_name = args[i + 1]
+                i += 2
+            elif args[i] in ("--date", "-d") and i + 1 < len(args):
+                date = args[i + 1]
+                i += 2
+            else:
+                print(f"Unknown option: {args[i]}")
+                return
+
+        if person_name is None:
+            print("Error: --person is required")
+            return
+
+        interaction_date = None
+        if date:
+            interaction_date = datetime.strptime(date, "%Y-%m-%d")
+
+        interaction = ingest_recording(video_path, person_name, interaction_date)
+        print(f"\nTakeaways:")
+        for t in interaction.takeaways:
+            print(f"  - {t}")
+        print(f"\nTags: {', '.join(t.value for t in interaction.tags)}")
+
+    def cmd_mkperson(self, args: list[str]) -> None:
+        if len(args) < 1:
+            print("Usage: mkperson <name> --company <company> --type <type> [--background <bio>]")
+            return
+
+        name = args[0]
+        company = None
+        person_type = None
+        background = ""
+
+        i = 1
+        while i < len(args):
+            if args[i] in ("--company", "-c") and i + 1 < len(args):
+                company = args[i + 1]
+                i += 2
+            elif args[i] in ("--type", "-t") and i + 1 < len(args):
+                person_type = args[i + 1]
+                i += 2
+            elif args[i] in ("--background", "-b") and i + 1 < len(args):
+                background = args[i + 1]
+                i += 2
+            else:
+                print(f"Unknown option: {args[i]}")
+                return
+
+        if company is None:
+            print("Error: --company is required")
+            return
+        if person_type is None:
+            print("Error: --type is required")
+            return
+
+        valid_types = [pt.value for pt in PersonType]
+        if person_type not in valid_types:
+            print(f"Error: --type must be one of {valid_types}")
+            return
+
+        p = create_person(name, company, PersonType(person_type), background)
+        print(f"Created {p.type.value}: {p.name} @ {p.current_company}")
+
+    def cmd_search(self, args: list[str]) -> None:
+        if len(args) < 2:
+            print("Usage: search tag <tag_name>")
+            return
+
+        if args[0] == "tag":
+            tag_name = args[1]
+            valid_tags = [t.value for t in Tag]
+            if tag_name not in valid_tags:
+                print(f"Error: tag must be one of {valid_tags}")
+                return
+
+            tag = Tag(tag_name)
+            interactions = get_interactions_by_tag(tag)
+
+            if not interactions:
+                print(f"No interactions found with tag '{tag_name}'.")
+                return
+
+            print(f"\nInteractions tagged '{tag_name}' ({TAG_DESCRIPTIONS[tag]}):\n")
+            for interaction in interactions:
+                print(f"[{interaction.date.strftime('%Y-%m-%d')}] {interaction.person_name}")
+                for t in interaction.takeaways:
+                    print(f"  - {t}")
+                print()
+        else:
+            print(f"Unknown search type: {args[0]}")
+
+    def cmd_tags(self, args: list[str]) -> None:
+        print("\nAvailable Tags:\n")
+        for tag in Tag:
+            print(f"  {tag.value:<12} - {TAG_DESCRIPTIONS[tag]}")
+        print()
+
+    def cmd_help(self, args: list[str]) -> None:
+        print("""
+Commands:
+  ls [path]                            List directory contents
+  cd [path]                            Change directory
+  cat <path>                           Show file contents
+  tree [path]                          Show directory tree
+  pwd                                  Print working directory
+  ingest <file> --person <name>        Ingest a recording
+  mkperson <name> --company <c> --type <t>  Create a person
+  search tag <tag>                     Search interactions by tag
+  tags                                 List available tags
+  help                                 Show this help
+  exit                                 Exit the shell
+""")
+
+    def cmd_exit(self, args: list[str]) -> None:
+        raise EOFError

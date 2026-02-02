@@ -4,6 +4,7 @@ from datetime import datetime
 
 import click
 
+import vfs
 from config import PersonType, Tag, TAG_DESCRIPTIONS
 from database import (
     create_person,
@@ -214,6 +215,42 @@ def tags():
     for tag in Tag:
         click.echo(f"  {tag.value:<12} - {TAG_DESCRIPTIONS[tag]}")
     click.echo()
+
+
+@cli.command("shell")
+def shell_cmd():
+    """Start the interactive Rolodex shell."""
+    from shell import RolodexShell
+    RolodexShell().run()
+
+
+@cli.command("ls")
+@click.argument("path", default="/")
+def ls_cmd(path: str):
+    """List virtual filesystem contents."""
+    node = vfs.resolve(path)
+    if node is None:
+        click.echo(f"ls: cannot access '{path}': No such file or directory")
+        return
+    if not node.is_dir:
+        click.echo(node.name)
+        return
+    for child in node.children:
+        click.echo(child)
+
+
+@cli.command("cat")
+@click.argument("path")
+def cat_cmd(path: str):
+    """Show virtual filesystem file contents."""
+    node = vfs.resolve(path)
+    if node is None:
+        click.echo(f"cat: {path}: No such file or directory")
+        return
+    if node.is_dir:
+        click.echo(f"cat: {path}: Is a directory")
+        return
+    click.echo(node.content)
 
 
 if __name__ == "__main__":

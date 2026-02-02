@@ -245,6 +245,33 @@ def get_interactions(person_name: str) -> list[Interaction]:
     return interactions
 
 
+def get_interactions_by_date(person_name: str, date_str: str) -> list[Interaction]:
+    """Get interactions for a person on a specific date, ordered by id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM interactions WHERE person_name = ? AND date LIKE ? ORDER BY id",
+        (person_name, f"{date_str}%"),
+    )
+
+    interactions = []
+    for row in cursor.fetchall():
+        interactions.append(
+            Interaction(
+                id=row["id"],
+                person_name=row["person_name"],
+                date=datetime.fromisoformat(row["date"]),
+                transcript=json.loads(row["transcript"]),
+                takeaways=json.loads(row["takeaways"]),
+                tags=[Tag(t) for t in json.loads(row["tags"])],
+            )
+        )
+
+    conn.close()
+    return interactions
+
+
 def get_interactions_by_tag(tag: Tag) -> list[Interaction]:
     """Get all interactions with a specific tag."""
     conn = get_connection()

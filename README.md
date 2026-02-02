@@ -13,7 +13,9 @@ Rolodex is a person-centric knowledge management tool for tracking how customers
 ```
 rolodex/
 ├── backend/
-│   ├── main.py                 # CLI entry point (Click-based)
+│   ├── main.py                 # CLI entry point (Click-based + one-shot VFS commands)
+│   ├── vfs.py                  # Virtual filesystem resolver
+│   ├── shell.py                # Interactive REPL shell
 │   ├── config.py               # Configuration and enums
 │   ├── models.py               # Data classes (Person, Interaction, InteractionAnalysis, RollingUpdate)
 │   ├── database.py             # SQLite storage layer
@@ -27,6 +29,27 @@ rolodex/
 │       └── rolodex.db          # SQLite database
 └── README.md
 ```
+
+## Virtual Filesystem
+
+Rolodex exposes data as a navigable virtual filesystem. People are directories, interactions are identified by date, and standard commands (`ls`, `cd`, `cat`, `tree`) let you browse everything.
+
+```
+/                                           # root — lists all people
+/Nick_Angeramo/                             # person directory
+/Nick_Angeramo/info                         # company, type, interaction count
+/Nick_Angeramo/background                   # static bio
+/Nick_Angeramo/state                        # AI-generated state_of_play
+/Nick_Angeramo/delta                        # last_delta
+/Nick_Angeramo/interactions/                # lists interactions by date
+/Nick_Angeramo/interactions/2026-01-05/     # single interaction dir
+/Nick_Angeramo/interactions/2026-01-05/transcript
+/Nick_Angeramo/interactions/2026-01-05/takeaways
+/Nick_Angeramo/interactions/2026-01-05/tags
+```
+
+- Spaces in names become underscores in paths (`Nick Angeramo` → `Nick_Angeramo`)
+- Date collisions: first interaction on a date = bare date (`2026-01-05`), subsequent = `2026-01-05_2`, `2026-01-05_3`
 
 ## Data Model
 
@@ -147,6 +170,94 @@ GEMINI_API_KEY = "your-gemini-key"
 
 All commands run from the `backend/` directory.
 
+### Interactive Shell
+
+Start the REPL for filesystem-style navigation with tab completion and command history:
+
+```bash
+python main.py shell
+```
+
+```
+rolodex:/$ ls
+Aidan_Smith/
+Nick_Angeramo/
+
+rolodex:/$ cd Nick_Angeramo
+rolodex:/Nick_Angeramo$ ls
+info
+background
+state
+delta
+interactions/
+
+rolodex:/Nick_Angeramo$ cat info
+Name:         Nick Angeramo
+Company:      Lane Valente
+Type:         customer
+Interactions: 1
+
+rolodex:/Nick_Angeramo$ cd interactions
+rolodex:/Nick_Angeramo/interactions$ ls
+2026-01-05/
+
+rolodex:/Nick_Angeramo/interactions$ cat 2026-01-05/takeaways
+- Lane Valente prioritizes a large self-performance technician base...
+- The company faces significant challenges in hiring qualified technicians...
+
+rolodex:/Nick_Angeramo/interactions$ tree /
+.
+├── Aidan_Smith/
+│   ├── info
+│   ├── background
+│   ├── state
+│   ├── delta
+│   └── interactions/
+└── Nick_Angeramo/
+    ├── info
+    ├── background
+    ├── state
+    ├── delta
+    └── interactions/
+```
+
+Shell commands:
+
+| Command | Description |
+|---------|-------------|
+| `ls [path]` | List directory contents |
+| `cd [path]` | Change directory (supports `..`, `.`, absolute and relative paths) |
+| `cat <path>` | Show file contents |
+| `tree [path]` | Show directory tree |
+| `pwd` | Print working directory |
+| `ingest <file> --person <name>` | Ingest a recording |
+| `mkperson <name> --company <c> --type <t>` | Create a person |
+| `search tag <tag>` | Search interactions by tag |
+| `tags` | List available tags |
+| `help` | Show help |
+| `exit` | Exit the shell |
+
+### One-Shot Commands
+
+Browse the virtual filesystem without entering the shell:
+
+```bash
+# List all people
+python main.py ls /
+
+# List a person's files
+python main.py ls /Nick_Angeramo
+
+# View person info
+python main.py cat /Nick_Angeramo/info
+
+# View a transcript
+python main.py cat /Nick_Angeramo/interactions/2026-01-05/transcript
+
+# View takeaways
+python main.py cat /Nick_Angeramo/interactions/2026-01-05/takeaways
+```
+
 ### Person Management
 
 ```bash
@@ -196,7 +307,9 @@ python main.py tags
 
 | Module | Responsibility |
 |--------|----------------|
-| `backend/main.py` | CLI interface with Click commands |
+| `backend/main.py` | CLI interface with Click commands and one-shot VFS commands |
+| `backend/vfs.py` | Virtual filesystem resolver — maps paths to database content |
+| `backend/shell.py` | Interactive REPL with prompt_toolkit (tab completion, history) |
 | `backend/config.py` | Constants, enums (PersonType, Tag), model token limits |
 | `backend/models.py` | Dataclass definitions (Person, Interaction, InteractionAnalysis, RollingUpdate) |
 | `backend/database.py` | SQLite CRUD operations |
@@ -240,11 +353,13 @@ langchain>=0.2.0          # LLM framework
 langchain-google-genai>=1.0.0  # Google Gemini integration
 click>=8.1.0              # CLI framework
 pydantic>=2.0.0           # Data validation
+prompt_toolkit>=3.0.0     # Interactive shell with tab completion
 ```
 
 ## Design Patterns
 
 - **Stateful AI**: Person profiles maintain AI-generated state that evolves with each interaction
+- **Virtual Filesystem**: Data exposed as navigable paths — people are directories, interactions are date-named subdirectories
 - **Structured LLM Output**: Pydantic schemas with LangChain's `with_structured_output()` for reliable JSON
 - **Per-Call Token Budgets**: Each LLM call gets a token limit matched to its expected output size
 - **Service Layer**: Business logic separated into services (transcription, analysis, ingestion)
