@@ -84,7 +84,7 @@ def _format_transcript(transcript: dict) -> str:
     for utterance in transcript["utterances"]:
         speaker = utterance.get("speaker", "Unknown")
         text = utterance.get("text", "")
-        lines.append(f"Speaker {speaker}: {text}")
+        lines.append(f"{speaker}: {text}")
 
     return "\n".join(lines)
 

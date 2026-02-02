@@ -197,7 +197,7 @@ def transcript(name: str, interaction_id: int | None):
         utterances = interaction.transcript.get("utterances", [])
         if utterances:
             for u in utterances:
-                click.echo(f"  Speaker {u['speaker']}: {u['text']}")
+                click.echo(f"  {u['speaker']}: {u['text']}")
         else:
             text = interaction.transcript.get("text", "")
             if text:

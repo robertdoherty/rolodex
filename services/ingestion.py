@@ -58,12 +58,25 @@ def ingest_recording(
     print(f"[2/6] Identifying subject speaker...")
     subject_speaker = identify_subject_speaker(transcript, person_name)
 
+    # Relabel speakers: subject gets person_name, others get "Interviewer N"
+    interviewer_count = 0
+    speaker_map = {}
+    for utterance in transcript.get("utterances", []):
+        letter = utterance["speaker"]
+        if letter not in speaker_map:
+            if letter == subject_speaker:
+                speaker_map[letter] = person_name
+            else:
+                interviewer_count += 1
+                speaker_map[letter] = f"Interviewer {interviewer_count}"
+        utterance["speaker"] = speaker_map[letter]
+
     print(f"[3/6] Analyzing interaction (focusing on {person_name}'s statements)...")
     takeaways, tags = analyze_interaction(
         transcript,
         person.type,
         subject_name=person_name,
-        subject_speaker=subject_speaker,
+        subject_speaker=person_name,
     )
 
     print(f"[4/6] Generating rolling update...")
