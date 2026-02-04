@@ -221,6 +221,7 @@ class RolodexShell:
         background = None
         linkedin_url = None
         company_industry = None
+        company_size = None
 
         # Parse provided arguments
         if args:
@@ -241,6 +242,9 @@ class RolodexShell:
                     i += 2
                 elif args[i] in ("--industry", "-i") and i + 1 < len(args):
                     company_industry = args[i + 1]
+                    i += 2
+                elif args[i] in ("--size", "-s") and i + 1 < len(args):
+                    company_size = args[i + 1]
                     i += 2
                 else:
                     print(f"Unknown option: {args[i]}")
@@ -276,7 +280,10 @@ class RolodexShell:
         if company_industry is None:
             company_industry = self.session.prompt("Company industry (optional, press Enter to skip): ").strip()
 
-        p = create_person(name, company, PersonType(person_type), background, linkedin_url, company_industry)
+        if company_size is None:
+            company_size = self.session.prompt("Company size (optional, press Enter to skip): ").strip()
+
+        p = create_person(name, company, PersonType(person_type), background, linkedin_url, company_industry, company_size)
         print(f"Created {p.type.value}: {p.name} @ {p.current_company}")
 
     def cmd_search(self, args: list[str]) -> None:

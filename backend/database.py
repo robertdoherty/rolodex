@@ -30,6 +30,7 @@ def init_db() -> None:
             background TEXT DEFAULT '',
             linkedin_url TEXT DEFAULT '',
             company_industry TEXT DEFAULT '',
+            company_size TEXT DEFAULT '',
             state_of_play TEXT DEFAULT '',
             last_delta TEXT DEFAULT ''
         )
@@ -68,6 +69,7 @@ def create_person(
     background: str = "",
     linkedin_url: str = "",
     company_industry: str = "",
+    company_size: str = "",
 ) -> Person:
     """Create a new person in the database."""
     conn = get_connection()
@@ -75,10 +77,10 @@ def create_person(
 
     cursor.execute(
         """
-        INSERT INTO persons (name, current_company, type, background, linkedin_url, company_industry)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO persons (name, current_company, type, background, linkedin_url, company_industry, company_size)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (name, current_company, person_type.value, background, linkedin_url, company_industry),
+        (name, current_company, person_type.value, background, linkedin_url, company_industry, company_size),
     )
 
     conn.commit()
@@ -91,6 +93,7 @@ def create_person(
         background=background,
         linkedin_url=linkedin_url,
         company_industry=company_industry,
+        company_size=company_size,
     )
 
 

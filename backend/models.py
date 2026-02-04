@@ -16,6 +16,7 @@ class Person:
     background: str = ""                   # Static bio
     linkedin_url: str = ""                 # LinkedIn profile URL (optional)
     company_industry: str = ""             # Industry of their company (optional)
+    company_size: str = ""                 # Company size (optional)
     state_of_play: str = ""                # AI-updated current truth (~200 words)
     last_delta: str = ""                   # What changed in most recent meeting
     interaction_ids: list[int] = field(default_factory=list)  # IDs of linked interactions
@@ -29,6 +30,7 @@ class Person:
             "background": self.background,
             "linkedin_url": self.linkedin_url,
             "company_industry": self.company_industry,
+            "company_size": self.company_size,
             "state_of_play": self.state_of_play,
             "last_delta": self.last_delta,
         }
@@ -43,6 +45,7 @@ class Person:
             background=data.get("background", ""),
             linkedin_url=data.get("linkedin_url", ""),
             company_industry=data.get("company_industry", ""),
+            company_size=data.get("company_size", ""),
             state_of_play=data.get("state_of_play", ""),
             last_delta=data.get("last_delta", ""),
             interaction_ids=interaction_ids or [],

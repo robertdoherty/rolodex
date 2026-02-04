@@ -42,7 +42,8 @@ def person():
 @click.option("--background", "-b", default=None, help="Background/bio")
 @click.option("--linkedin", "-l", default=None, help="LinkedIn profile URL")
 @click.option("--industry", "-i", default=None, help="Company industry")
-def person_create(name: str | None, company: str | None, person_type: str | None, background: str | None, linkedin: str | None, industry: str | None):
+@click.option("--size", "-s", default=None, help="Company size")
+def person_create(name: str | None, company: str | None, person_type: str | None, background: str | None, linkedin: str | None, industry: str | None, size: str | None):
     """Create a new person in the Rolodex.
 
     If any required fields are missing, you will be prompted interactively.
@@ -63,9 +64,11 @@ def person_create(name: str | None, company: str | None, person_type: str | None
         linkedin = click.prompt("LinkedIn URL (optional)", default="", show_default=False)
     if industry is None:
         industry = click.prompt("Company industry (optional)", default="", show_default=False)
+    if size is None:
+        size = click.prompt("Company size (optional)", default="", show_default=False)
 
     ptype = PersonType(person_type)
-    p = create_person(name, company, ptype, background, linkedin, industry)
+    p = create_person(name, company, ptype, background, linkedin, industry, size)
     click.echo(f"Created {p.type.value}: {p.name} @ {p.current_company}")
 
 
@@ -83,6 +86,8 @@ def person_show(name: str):
     click.echo(f"Company: {p.current_company}")
     if p.company_industry:
         click.echo(f"Industry: {p.company_industry}")
+    if p.company_size:
+        click.echo(f"Size: {p.company_size}")
     click.echo(f"Type: {p.type.value}")
     if p.linkedin_url:
         click.echo(f"LinkedIn: {p.linkedin_url}")
