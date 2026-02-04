@@ -36,19 +36,19 @@ Rolodex exposes data as a navigable virtual filesystem. People are directories, 
 
 ```
 /                                           # root — lists all people
-/Nick_Angeramo/                             # person directory
-/Nick_Angeramo/info                         # company, type, interaction count
-/Nick_Angeramo/background                   # static bio
-/Nick_Angeramo/state                        # AI-generated state_of_play
-/Nick_Angeramo/delta                        # last_delta
-/Nick_Angeramo/interactions/                # lists interactions by date
-/Nick_Angeramo/interactions/2026-01-05/     # single interaction dir
-/Nick_Angeramo/interactions/2026-01-05/transcript
-/Nick_Angeramo/interactions/2026-01-05/takeaways
-/Nick_Angeramo/interactions/2026-01-05/tags
+/John_Doe/                             # person directory
+/John_Doe/info                         # company, type, interaction count
+/John_Doe/background                   # static bio
+/John_Doe/state                        # AI-generated state_of_play
+/John_Doe/delta                        # last_delta
+/John_Doe/interactions/                # lists interactions by date
+/John_Doe/interactions/2026-01-05/     # single interaction dir
+/John_Doe/interactions/2026-01-05/transcript
+/John_Doe/interactions/2026-01-05/takeaways
+/John_Doe/interactions/2026-01-05/tags
 ```
 
-- Spaces in names become underscores in paths (`Nick Angeramo` → `Nick_Angeramo`)
+- Spaces in names become underscores in paths (`John Doe` → `John_Doe`)
 - Date collisions: first interaction on a date = bare date (`2026-01-05`), subsequent = `2026-01-05_2`, `2026-01-05_3`
 
 ## Data Model
@@ -98,7 +98,7 @@ A single recorded conversation:
   {
     "text": "Full transcript text",
     "utterances": [
-      {"speaker": "Aidan Smith", "text": "...", "start": 0, "end": 1000}
+      {"speaker": "Jane Smith", "text": "...", "start": 0, "end": 1000}
     ]
   }
   ```
@@ -180,40 +180,40 @@ python main.py shell
 
 ```
 rolodex:/$ ls
-Aidan_Smith/
-Nick_Angeramo/
+Jane_Smith/
+John_Doe/
 
-rolodex:/$ cd Nick_Angeramo
-rolodex:/Nick_Angeramo$ ls
+rolodex:/$ cd John_Doe
+rolodex:/John_Doe$ ls
 info
 background
 state
 delta
 interactions/
 
-rolodex:/Nick_Angeramo$ cat info
-Name:         Nick Angeramo
-Company:      Lane Valente
+rolodex:/John_Doe$ cat info
+Name:         John Doe
+Company:      Ford
 Type:         customer
 Interactions: 1
 
-rolodex:/Nick_Angeramo$ cd interactions
-rolodex:/Nick_Angeramo/interactions$ ls
+rolodex:/John_Doe$ cd interactions
+rolodex:/John_Doe/interactions$ ls
 2026-01-05/
 
-rolodex:/Nick_Angeramo/interactions$ cat 2026-01-05/takeaways
-- Lane Valente prioritizes a large self-performance technician base...
+rolodex:/John_Doe/interactions$ cat 2026-01-05/takeaways
+- Ford prioritizes a large self-performance technician base...
 - The company faces significant challenges in hiring qualified technicians...
 
-rolodex:/Nick_Angeramo/interactions$ tree /
+rolodex:/John_Doe/interactions$ tree /
 .
-├── Aidan_Smith/
+├── Jane_Smith/
 │   ├── info
 │   ├── background
 │   ├── state
 │   ├── delta
 │   └── interactions/
-└── Nick_Angeramo/
+└── John_Doe/
     ├── info
     ├── background
     ├── state
@@ -246,16 +246,16 @@ Browse the virtual filesystem without entering the shell:
 python main.py ls /
 
 # List a person's files
-python main.py ls /Nick_Angeramo
+python main.py ls /John_Doe
 
 # View person info
-python main.py cat /Nick_Angeramo/info
+python main.py cat /John_Doe/info
 
 # View a transcript
-python main.py cat /Nick_Angeramo/interactions/2026-01-05/transcript
+python main.py cat /John_Doe/interactions/2026-01-05/transcript
 
 # View takeaways
-python main.py cat /Nick_Angeramo/interactions/2026-01-05/takeaways
+python main.py cat /John_Doe/interactions/2026-01-05/takeaways
 ```
 
 ### Person Management
