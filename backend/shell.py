@@ -215,13 +215,15 @@ class RolodexShell:
 
     def cmd_mkperson(self, args: list[str]) -> None:
         if len(args) < 1:
-            print("Usage: mkperson <name> --company <company> --type <type> [--background <bio>]")
+            print("Usage: mkperson <name> --company <company> --type <type> [--background <bio>] [--linkedin <url>] [--industry <industry>]")
             return
 
         name = args[0]
         company = None
         person_type = None
         background = ""
+        linkedin_url = ""
+        company_industry = ""
 
         i = 1
         while i < len(args):
@@ -233,6 +235,12 @@ class RolodexShell:
                 i += 2
             elif args[i] in ("--background", "-b") and i + 1 < len(args):
                 background = args[i + 1]
+                i += 2
+            elif args[i] in ("--linkedin", "-l") and i + 1 < len(args):
+                linkedin_url = args[i + 1]
+                i += 2
+            elif args[i] in ("--industry", "-i") and i + 1 < len(args):
+                company_industry = args[i + 1]
                 i += 2
             else:
                 print(f"Unknown option: {args[i]}")
@@ -250,7 +258,7 @@ class RolodexShell:
             print(f"Error: --type must be one of {valid_types}")
             return
 
-        p = create_person(name, company, PersonType(person_type), background)
+        p = create_person(name, company, PersonType(person_type), background, linkedin_url, company_industry)
         print(f"Created {p.type.value}: {p.name} @ {p.current_company}")
 
     def cmd_search(self, args: list[str]) -> None:
@@ -296,7 +304,7 @@ Commands:
   tree [path]                          Show directory tree
   pwd                                  Print working directory
   ingest <file> --person <name>        Ingest a recording
-  mkperson <name> --company <c> --type <t>  Create a person
+  mkperson <name> --company <c> --type <t> [opts]  Create a person
   search tag <tag>                     Search interactions by tag
   tags                                 List available tags
   help                                 Show this help

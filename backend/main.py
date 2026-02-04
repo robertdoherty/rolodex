@@ -40,10 +40,12 @@ def person():
     help="Person type",
 )
 @click.option("--background", "-b", default="", help="Background/bio")
-def person_create(name: str, company: str, person_type: str, background: str):
+@click.option("--linkedin", "-l", default="", help="LinkedIn profile URL")
+@click.option("--industry", "-i", default="", help="Company industry")
+def person_create(name: str, company: str, person_type: str, background: str, linkedin: str, industry: str):
     """Create a new person in the Rolodex."""
     ptype = PersonType(person_type)
-    p = create_person(name, company, ptype, background)
+    p = create_person(name, company, ptype, background, linkedin, industry)
     click.echo(f"Created {p.type.value}: {p.name} @ {p.current_company}")
 
 
@@ -59,7 +61,11 @@ def person_show(name: str):
     click.echo(f"\n{'='*60}")
     click.echo(f"Name: {p.name}")
     click.echo(f"Company: {p.current_company}")
+    if p.company_industry:
+        click.echo(f"Industry: {p.company_industry}")
     click.echo(f"Type: {p.type.value}")
+    if p.linkedin_url:
+        click.echo(f"LinkedIn: {p.linkedin_url}")
     click.echo(f"Interactions: {len(p.interaction_ids)}")
     click.echo(f"{'='*60}")
 
