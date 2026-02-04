@@ -30,18 +30,34 @@ def person():
 
 
 @person.command("create")
-@click.argument("name")
-@click.option("--company", "-c", required=True, help="Current company")
+@click.argument("name", required=False)
+@click.option("--company", "-c", default=None, help="Current company")
 @click.option(
     "--type", "-t",
     "person_type",
-    required=True,
+    default=None,
     type=click.Choice(["customer", "investor", "competitor"]),
     help="Person type",
 )
-@click.option("--background", "-b", default="", help="Background/bio")
-def person_create(name: str, company: str, person_type: str, background: str):
-    """Create a new person in the Rolodex."""
+@click.option("--background", "-b", default=None, help="Background/bio")
+def person_create(name: str | None, company: str | None, person_type: str | None, background: str | None):
+    """Create a new person in the Rolodex.
+
+    If any required fields are missing, you will be prompted interactively.
+    """
+    # Prompt for missing required fields
+    if name is None:
+        name = click.prompt("Name")
+    if company is None:
+        company = click.prompt("Company")
+    if person_type is None:
+        person_type = click.prompt(
+            "Type",
+            type=click.Choice(["customer", "investor", "competitor"]),
+        )
+    if background is None:
+        background = click.prompt("Background (optional)", default="", show_default=False)
+
     ptype = PersonType(person_type)
     p = create_person(name, company, ptype, background)
     click.echo(f"Created {p.type.value}: {p.name} @ {p.current_company}")
