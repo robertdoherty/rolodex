@@ -26,8 +26,12 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS persons (
             name TEXT PRIMARY KEY,
             current_company TEXT NOT NULL,
-            type TEXT NOT NULL,
+            type TEXT DEFAULT '',
             background TEXT DEFAULT '',
+            linkedin_url TEXT DEFAULT '',
+            company_industry TEXT DEFAULT '',
+            company_revenue TEXT DEFAULT '',
+            company_headcount TEXT DEFAULT '',
             state_of_play TEXT DEFAULT '',
             last_delta TEXT DEFAULT ''
         )
@@ -62,8 +66,12 @@ def init_db() -> None:
 def create_person(
     name: str,
     current_company: str,
-    person_type: PersonType,
+    person_type: Optional[PersonType] = None,
     background: str = "",
+    linkedin_url: str = "",
+    company_industry: str = "",
+    company_revenue: str = "",
+    company_headcount: str = "",
 ) -> Person:
     """Create a new person in the database."""
     conn = get_connection()
@@ -71,10 +79,10 @@ def create_person(
 
     cursor.execute(
         """
-        INSERT INTO persons (name, current_company, type, background)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO persons (name, current_company, type, background, linkedin_url, company_industry, company_revenue, company_headcount)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (name, current_company, person_type.value, background),
+        (name, current_company, person_type.value if person_type else "", background, linkedin_url, company_industry, company_revenue, company_headcount),
     )
 
     conn.commit()
@@ -85,6 +93,10 @@ def create_person(
         current_company=current_company,
         type=person_type,
         background=background,
+        linkedin_url=linkedin_url,
+        company_industry=company_industry,
+        company_revenue=company_revenue,
+        company_headcount=company_headcount,
     )
 
 

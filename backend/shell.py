@@ -214,44 +214,69 @@ class RolodexShell:
         print(f"\nTags: {', '.join(t.value for t in interaction.tags)}")
 
     def cmd_mkperson(self, args: list[str]) -> None:
-        if len(args) < 1:
-            print("Usage: mkperson <name> --company <company> --type <type> [--background <bio>]")
-            return
-
-        name = args[0]
+        """Create a new person. Only name and company are required."""
+        name = None
         company = None
-        person_type = None
+        person_type = ""
         background = ""
+        linkedin_url = ""
+        company_industry = ""
+        company_revenue = ""
+        company_headcount = ""
 
-        i = 1
-        while i < len(args):
-            if args[i] in ("--company", "-c") and i + 1 < len(args):
-                company = args[i + 1]
-                i += 2
-            elif args[i] in ("--type", "-t") and i + 1 < len(args):
-                person_type = args[i + 1]
-                i += 2
-            elif args[i] in ("--background", "-b") and i + 1 < len(args):
-                background = args[i + 1]
-                i += 2
-            else:
-                print(f"Unknown option: {args[i]}")
+        # Parse provided arguments
+        if args:
+            name = args[0]
+            i = 1
+            while i < len(args):
+                if args[i] in ("--company", "-c") and i + 1 < len(args):
+                    company = args[i + 1]
+                    i += 2
+                elif args[i] in ("--type", "-t") and i + 1 < len(args):
+                    person_type = args[i + 1]
+                    i += 2
+                elif args[i] in ("--background", "-b") and i + 1 < len(args):
+                    background = args[i + 1]
+                    i += 2
+                elif args[i] in ("--linkedin", "-l") and i + 1 < len(args):
+                    linkedin_url = args[i + 1]
+                    i += 2
+                elif args[i] in ("--industry", "-i") and i + 1 < len(args):
+                    company_industry = args[i + 1]
+                    i += 2
+                elif args[i] in ("--revenue", "-r") and i + 1 < len(args):
+                    company_revenue = args[i + 1]
+                    i += 2
+                elif args[i] in ("--headcount", "-h") and i + 1 < len(args):
+                    company_headcount = args[i + 1]
+                    i += 2
+                else:
+                    print(f"Unknown option: {args[i]}")
+                    return
+
+        # Prompt for missing required fields
+        if name is None:
+            name = self.session.prompt("Name: ").strip()
+            if not name:
+                print("Error: name cannot be empty")
                 return
 
         if company is None:
-            print("Error: --company is required")
-            return
-        if person_type is None:
-            print("Error: --type is required")
-            return
+            company = self.session.prompt("Company: ").strip()
+            if not company:
+                print("Error: company cannot be empty")
+                return
 
+        # Validate type if provided
         valid_types = [pt.value for pt in PersonType]
-        if person_type not in valid_types:
-            print(f"Error: --type must be one of {valid_types}")
+        if person_type and person_type not in valid_types:
+            print(f"Error: type must be one of {valid_types}")
             return
 
-        p = create_person(name, company, PersonType(person_type), background)
-        print(f"Created {p.type.value}: {p.name} @ {p.current_company}")
+        ptype = PersonType(person_type) if person_type else None
+        p = create_person(name, company, ptype, background, linkedin_url, company_industry, company_revenue, company_headcount)
+        type_str = p.type.value if p.type else "person"
+        print(f"Created {type_str}: {p.name} @ {p.current_company}")
 
     def cmd_search(self, args: list[str]) -> None:
         if len(args) < 2:
@@ -296,11 +321,18 @@ Commands:
   tree [path]                          Show directory tree
   pwd                                  Print working directory
   ingest <file> --person <name>        Ingest a recording
-  mkperson <name> --company <c> --type <t>  Create a person
+  mkperson [name] [options]            Create a person (prompts for missing fields)
   search tag <tag>                     Search interactions by tag
   tags                                 List available tags
   help                                 Show this help
   exit                                 Exit the shell
+
+mkperson options:
+  --company, -c <company>              Person's company
+  --type, -t <type>                    customer, investor, or competitor
+  --background, -b <bio>               Optional background info
+  --linkedin, -l <url>                 LinkedIn profile URL
+  --industry, -i <industry>            Company industry
 """)
 
     def cmd_exit(self, args: list[str]) -> None:

@@ -12,8 +12,12 @@ class Person:
     """A person tracked in the Rolodex system."""
     name: str                              # Primary key
     current_company: str                   # Where they work now
-    type: PersonType                       # Customer/Investor/Competitor
+    type: Optional[PersonType] = None      # Customer/Investor/Competitor (optional)
     background: str = ""                   # Static bio
+    linkedin_url: str = ""                 # LinkedIn profile URL (optional)
+    company_industry: str = ""             # Industry of their company (optional)
+    company_revenue: str = ""              # Company revenue/$ size (optional)
+    company_headcount: str = ""            # Company employee count (optional)
     state_of_play: str = ""                # AI-updated current truth (~200 words)
     last_delta: str = ""                   # What changed in most recent meeting
     interaction_ids: list[int] = field(default_factory=list)  # IDs of linked interactions
@@ -23,8 +27,12 @@ class Person:
         return {
             "name": self.name,
             "current_company": self.current_company,
-            "type": self.type.value,
+            "type": self.type.value if self.type else "",
             "background": self.background,
+            "linkedin_url": self.linkedin_url,
+            "company_industry": self.company_industry,
+            "company_revenue": self.company_revenue,
+            "company_headcount": self.company_headcount,
             "state_of_play": self.state_of_play,
             "last_delta": self.last_delta,
         }
@@ -35,8 +43,12 @@ class Person:
         return cls(
             name=data["name"],
             current_company=data["current_company"],
-            type=PersonType(data["type"]),
+            type=PersonType(data["type"]) if data.get("type") else None,
             background=data.get("background", ""),
+            linkedin_url=data.get("linkedin_url", ""),
+            company_industry=data.get("company_industry", ""),
+            company_revenue=data.get("company_revenue", ""),
+            company_headcount=data.get("company_headcount", ""),
             state_of_play=data.get("state_of_play", ""),
             last_delta=data.get("last_delta", ""),
             interaction_ids=interaction_ids or [],
