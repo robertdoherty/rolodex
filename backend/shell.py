@@ -214,14 +214,15 @@ class RolodexShell:
         print(f"\nTags: {', '.join(t.value for t in interaction.tags)}")
 
     def cmd_mkperson(self, args: list[str]) -> None:
-        """Create a new person. Prompts for missing required fields."""
+        """Create a new person. Only name and company are required."""
         name = None
         company = None
-        person_type = None
-        background = None
-        linkedin_url = None
-        company_industry = None
-        company_size = None
+        person_type = ""
+        background = ""
+        linkedin_url = ""
+        company_industry = ""
+        company_revenue = ""
+        company_headcount = ""
 
         # Parse provided arguments
         if args:
@@ -243,8 +244,11 @@ class RolodexShell:
                 elif args[i] in ("--industry", "-i") and i + 1 < len(args):
                     company_industry = args[i + 1]
                     i += 2
-                elif args[i] in ("--size", "-s") and i + 1 < len(args):
-                    company_size = args[i + 1]
+                elif args[i] in ("--revenue", "-r") and i + 1 < len(args):
+                    company_revenue = args[i + 1]
+                    i += 2
+                elif args[i] in ("--headcount", "-h") and i + 1 < len(args):
+                    company_headcount = args[i + 1]
                     i += 2
                 else:
                     print(f"Unknown option: {args[i]}")
@@ -263,28 +267,16 @@ class RolodexShell:
                 print("Error: company cannot be empty")
                 return
 
+        # Validate type if provided
         valid_types = [pt.value for pt in PersonType]
-        if person_type is None:
-            person_type = self.session.prompt(f"Type ({'/'.join(valid_types)}): ").strip()
-
-        if person_type not in valid_types:
+        if person_type and person_type not in valid_types:
             print(f"Error: type must be one of {valid_types}")
             return
 
-        if background is None:
-            background = self.session.prompt("Background (optional, press Enter to skip): ").strip()
-
-        if linkedin_url is None:
-            linkedin_url = self.session.prompt("LinkedIn URL (optional, press Enter to skip): ").strip()
-
-        if company_industry is None:
-            company_industry = self.session.prompt("Company industry (optional, press Enter to skip): ").strip()
-
-        if company_size is None:
-            company_size = self.session.prompt("Company size (optional, press Enter to skip): ").strip()
-
-        p = create_person(name, company, PersonType(person_type), background, linkedin_url, company_industry, company_size)
-        print(f"Created {p.type.value}: {p.name} @ {p.current_company}")
+        ptype = PersonType(person_type) if person_type else None
+        p = create_person(name, company, ptype, background, linkedin_url, company_industry, company_revenue, company_headcount)
+        type_str = p.type.value if p.type else "person"
+        print(f"Created {type_str}: {p.name} @ {p.current_company}")
 
     def cmd_search(self, args: list[str]) -> None:
         if len(args) < 2:
