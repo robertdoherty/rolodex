@@ -6,23 +6,92 @@ An aggregation agent that allows freeform questions across all people and intera
 
 ---
 
+## Skill Folder Structure
+
+The agent is a single skill. Everything lives in one folder:
+
+```
+skills/
+  customer-insights/
+    skill.md                  # Agent instructions, persona lenses, response calibration
+    context/
+      search-dimensions.md    # What the agent can filter/search on
+      output-formats.md       # Format templates (2x2, empathy map, etc.)
+      enums.md                # Valid values for tags, person types, industries
+```
+
+- `skill.md` is the entrypoint. It contains the agent's behavioral instructions and declares the tools it can use.
+- `context/` holds reference material the agent reads as needed. These are not prompts — they're lookup tables and format templates.
+- **Tools are CLI commands.** The agent invokes them via bash. No abstract Python functions — everything runs through `python main.py`.
+
+---
+
+## How the Agent Accesses Data
+
+The agent has two access paths, each suited to different query types:
+
+### 1. VFS (Virtual Filesystem) — for direct lookups
+
+The existing VFS maps paths to database content. The agent uses `python main.py cat` and `python main.py ls` for simple factual lookups.
+
+```
+/                                   # ls: list all people
+/John_Doe/                          # ls: person directory
+/John_Doe/info                      # cat: name, company, type, interaction count
+/John_Doe/background                # cat: static bio
+/John_Doe/state                     # cat: AI-generated state of play
+/John_Doe/delta                     # cat: what changed last meeting
+/John_Doe/interactions/             # ls: all interaction dates
+/John_Doe/interactions/2025-01-15/  # ls: transcript, takeaways, tags
+```
+
+**When to use:** "What company does Sarah work at?", "When did we last talk to John?", "Show me John's state of play."
+
+### 2. CLI Search Commands — for filtered queries and aggregation
+
+New CLI commands (extending `main.py`) handle multi-dimensional search and aggregation. The agent composes these commands based on the user's question.
+
+```bash
+# Search interactions with filters
+python main.py search interactions --tag pricing --type customer --text "onboarding"
+python main.py search interactions --tag competitors --company "Acme" --from 2025-01-01
+
+# Search people with filters
+python main.py search people --type investor --industry fintech
+python main.py search people --text "concerned about pricing"
+
+# Aggregation
+python main.py aggregate tags                          # tag distribution across all interactions
+python main.py aggregate tags --type customer          # scoped to customers only
+python main.py aggregate segments --by industry        # breakdown by industry
+python main.py aggregate segments --by type            # breakdown by person type
+
+# Full-text search across transcripts + takeaways
+python main.py search text "switching to competitor"
+```
+
+**When to use:** "What are customers saying about pricing?", "How many times was pricing discussed?", "What are the top pain points across enterprise customers?"
+
+---
+
 ## Search Dimensions
 
 The agent can filter and search across:
 
-| Dimension | Source | Search Type |
-|-----------|--------|-------------|
-| Person Type | `Person.type` | Enum filter (customer, investor, competitor) |
-| Company Name | `Person.current_company` | Text match |
-| Company Size | `Person.company_size` | Enum filter (startup, smb, enterprise) |
-| Industry | `Person.industry` | Enum filter |
-| Tags | `Interaction.tags` | Multi-select (pricing, product, gtm, competitors, market) |
-| Person Name | `Person.name` | Text match |
-| Date Range | `Interaction.date` | From/to dates |
-| Takeaways | `Interaction.takeaways` | Full-text search |
-| Transcript | `Interaction.transcript` | Full-text search |
-| State of Play | `Person.state_of_play` | Full-text search |
-| Background | `Person.background` | Full-text search |
+| Dimension | Source | CLI Flag | Search Type |
+|-----------|--------|----------|-------------|
+| Person Type | `Person.type` | `--type` | Enum filter (customer, investor, competitor) |
+| Company Name | `Person.current_company` | `--company` | Text match |
+| Company Revenue | `Person.company_revenue` | `--revenue` | Text field |
+| Company Headcount | `Person.company_headcount` | `--headcount` | Text field |
+| Industry | `Person.company_industry` | `--industry` | Text match |
+| Tags | `Interaction.tags` | `--tag` | Multi-select (pricing, product, gtm, competitors, market) |
+| Person Name | `Person.name` | `--person` | Text match |
+| Date Range | `Interaction.date` | `--from` / `--to` | Date range |
+| Takeaways | `Interaction.takeaways` | `--text` | Full-text search |
+| Transcript | `Interaction.transcript` | `--text` | Full-text search |
+| State of Play | `Person.state_of_play` | `--text` (people search) | Full-text search |
+| Background | `Person.background` | `--text` (people search) | Full-text search |
 
 ---
 
@@ -56,23 +125,26 @@ The agent matches output depth to question intent. Does not over-produce.
 
 ### Lookup (Direct Answer)
 **Triggers:** Simple factual questions
+**Tools:** VFS (`cat`, `ls`)
 **Output:** 1 line, no preamble
 
 Examples:
-- "What company does Sarah work at?" → `Acme Corp`
-- "When did we last talk to John?" → `January 15, 2025`
-- "How many customers have we interviewed?" → `23`
+- "What company does Sarah work at?" → `cat /Sarah_Chen/info` → `Acme Corp`
+- "When did we last talk to John?" → `ls /John_Doe/interactions/` → `January 15, 2025`
+- "How many customers have we interviewed?" → `python main.py person list --type customer` → `23`
 
 ### Comparison (Brief Analysis)
 **Triggers:** "How do X vs Y...", "What's the difference between...", comparison language
+**Tools:** CLI search with different filters, then synthesize
 **Output:** Bullets or small table, 3-7 points
 
 Examples:
-- "How do SMB vs enterprise view pricing?"
-- "What's different about investor vs customer concerns?"
+- "How do SMB vs enterprise view pricing?" → search interactions with `--tag pricing`, split by company size
+- "What's different about investor vs customer concerns?" → search both types, compare takeaways
 
 ### Analysis (Full Report)
 **Triggers:** "analyze", "report", "deep dive", "map out", "do an analysis"
+**Tools:** Multiple CLI searches + aggregation, reads `context/output-formats.md` for template
 **Output:** Structured format with visualization, headers, comprehensive coverage
 
 Examples:
@@ -148,133 +220,75 @@ Poor mobile experience      │     4    │ ███░░░░░░░
 
 ---
 
-## Tools Required
+## CLI Commands to Build
 
-### Search Functions
+These extend the existing `main.py` Click CLI. The agent invokes them via bash.
 
-```python
-def search_interactions(
-    tags: list[Tag] = None,
-    person_types: list[PersonType] = None,
-    company_sizes: list[CompanySize] = None,
-    industries: list[Industry] = None,
-    companies: list[str] = None,
-    text_query: str = None,  # full-text across transcripts + takeaways
-    date_from: datetime = None,
-    date_to: datetime = None,
-) -> list[Interaction]
+### search interactions
 
-def search_persons(
-    types: list[PersonType] = None,
-    company_sizes: list[CompanySize] = None,
-    industries: list[Industry] = None,
-    companies: list[str] = None,
-    text_query: str = None,  # full-text across state_of_play + background
-) -> list[Person]
+```bash
+python main.py search interactions [OPTIONS]
 ```
 
-### Aggregation Functions
+| Flag | Type | Description |
+|------|------|-------------|
+| `--tag` | Multi | Filter by tag (pricing, product, gtm, competitors, market) |
+| `--type` | Choice | Filter by person type (customer, investor, competitor) |
+| `--company` | Text | Filter by company name (substring match) |
+| `--industry` | Text | Filter by company industry (substring match) |
+| `--person` | Text | Filter by person name |
+| `--text` | Text | Full-text search across takeaways + transcripts |
+| `--from` | Date | Start date (YYYY-MM-DD) |
+| `--to` | Date | End date (YYYY-MM-DD) |
+| `--format` | Choice | Output as `table` (default) or `json` |
 
-```python
-def count_mentions(
-    topic: str,
-    scope: SearchScope = None,  # optional filter
-) -> int
+Output: For each matching interaction, prints person name, date, tags, and takeaways. With `--format json`, outputs structured JSON the agent can process further.
 
-def extract_quotes(
-    topic: str,
-    scope: SearchScope = None,
-    limit: int = 10,
-) -> list[Quote]  # includes person, date, context
+### search people
 
-def get_tag_distribution(
-    scope: SearchScope = None,
-) -> dict[Tag, int]
-
-def get_segment_breakdown(
-    segment_by: str,  # "company_size", "industry", "person_type"
-    scope: SearchScope = None,
-) -> dict[str, int]
+```bash
+python main.py search people [OPTIONS]
 ```
 
-### Comparison Functions
+| Flag | Type | Description |
+|------|------|-------------|
+| `--type` | Choice | Filter by person type |
+| `--company` | Text | Filter by company name |
+| `--industry` | Text | Filter by company industry |
+| `--text` | Text | Full-text search across state_of_play + background |
+| `--format` | Choice | Output as `table` (default) or `json` |
 
-```python
-def compare_segments(
-    segment_a: SearchScope,
-    segment_b: SearchScope,
-    on_topics: list[str] = None,
-) -> SegmentComparison
+### search text
+
+```bash
+python main.py search text QUERY [OPTIONS]
 ```
+
+Full-text search across all transcripts and takeaways. Returns matching excerpts with person name, date, and surrounding context.
+
+### aggregate tags
+
+```bash
+python main.py aggregate tags [OPTIONS]
+```
+
+Shows tag frequency distribution. Accepts same filter flags as `search interactions` to scope the count.
+
+### aggregate segments
+
+```bash
+python main.py aggregate segments --by FIELD [OPTIONS]
+```
+
+Groups people or interactions by a field (`type`, `industry`, `company`) and shows counts.
 
 ---
 
-## Conversation Context
+## Database Changes
 
-The agent maintains context within a session for follow-up questions.
-
-**Example flow:**
-```
-User: What are customers saying about pricing?
-Agent: [searches #pricing tag, summarizes 12 interactions]
-
-User: Which of those are from enterprise?
-Agent: [filters previous results to company_size=enterprise]
-
-User: Show me the strongest quotes
-Agent: [extracts top quotes from filtered set]
-
-User: How does that compare to SMB?
-Agent: [runs comparison against SMB segment]
-```
-
-Context resets on new unrelated question or explicit reset.
-
----
-
-## Data Model Additions
-
-### New Enums (config.py)
-
-```python
-class CompanySize(str, Enum):
-    STARTUP = "startup"       # <50 employees
-    SMB = "smb"               # 50-500 employees
-    ENTERPRISE = "enterprise" # 500+ employees
-
-class Industry(str, Enum):
-    FINTECH = "fintech"
-    HEALTHCARE = "healthcare"
-    SAAS = "saas"
-    ECOMMERCE = "ecommerce"
-    MANUFACTURING = "manufacturing"
-    PROFESSIONAL_SERVICES = "professional_services"
-    OTHER = "other"
-```
-
-### Person Model Updates
-
-```python
-@dataclass
-class Person:
-    name: str
-    current_company: str
-    type: PersonType
-    company_size: CompanySize      # NEW
-    industry: Industry             # NEW
-    background: str = ""
-    state_of_play: str = ""
-    last_delta: str = ""
-    interaction_ids: list[int] = field(default_factory=list)
-```
-
-### Database Schema Updates
+### Full-text search indexes (SQLite FTS5)
 
 ```sql
-ALTER TABLE persons ADD COLUMN company_size TEXT DEFAULT 'smb';
-ALTER TABLE persons ADD COLUMN industry TEXT DEFAULT 'other';
-
--- Full-text search index (SQLite FTS5)
 CREATE VIRTUAL TABLE interactions_fts USING fts5(
     takeaways,
     transcript,
@@ -290,30 +304,61 @@ CREATE VIRTUAL TABLE persons_fts USING fts5(
 );
 ```
 
+These power the `--text` flag on search commands.
+
+---
+
+## Conversation Context
+
+The agent maintains context within a session for follow-up questions.
+
+**Example flow:**
+```
+User: What are customers saying about pricing?
+Agent: [runs: search interactions --tag pricing --type customer --format json]
+Agent: [summarizes 12 interactions]
+
+User: Which of those are from fintech?
+Agent: [runs: search interactions --tag pricing --type customer --industry fintech --format json]
+Agent: [filters to 4 interactions]
+
+User: Show me the strongest quotes
+Agent: [reads transcripts via VFS for those 4 people]
+Agent: [extracts top quotes]
+
+User: How does that compare to healthcare?
+Agent: [runs: search interactions --tag pricing --type customer --industry healthcare --format json]
+Agent: [compares the two sets]
+```
+
+Context resets on new unrelated question or explicit reset.
+
 ---
 
 ## Implementation Steps
 
-1. **Add CompanySize and Industry enums** to `config.py`
-2. **Update Person model** with new fields
-3. **Migrate database schema** - add columns + FTS indexes
-4. **Build search functions** - `search_interactions()`, `search_persons()`
-5. **Build aggregation functions** - `count_mentions()`, `extract_quotes()`
-6. **Create skill.md file** - agent instructions, tool definitions, response calibration rules
-7. **Wire skill to backend** - connect tools to database functions
-8. **Test with sample queries** across all response types
+1. **Write `skill.md`** — agent instructions, tool declarations (CLI commands + VFS), persona lenses, response calibration rules. This is the spec the agent follows.
+2. **Write `context/` files** — `search-dimensions.md`, `output-formats.md`, `enums.md` as reference material the skill.md points to.
+3. **Add FTS5 indexes** to database schema (`database.py` init_db migration).
+4. **Build `search interactions` CLI command** — multi-filter search with `--format json` output.
+5. **Build `search people` CLI command** — person search with text matching.
+6. **Build `search text` CLI command** — full-text search across transcripts + takeaways.
+7. **Build `aggregate` CLI commands** — tag distribution and segment breakdown.
+8. **Test with sample queries** across all response types (lookup via VFS, comparison via search, analysis via search + aggregation).
 
 ---
 
 ## Example Queries
 
-| Query | Type | Persona | Format |
-|-------|------|---------|--------|
-| "What company does John work at?" | Lookup | - | Direct |
-| "How many times was pricing discussed?" | Lookup | - | Direct |
-| "What are the top pain points?" | Comparison | Product | Frequency Table |
-| "How do enterprise vs SMB view integrations?" | Comparison | Product | 2x2 or Bullets |
-| "What are investors worried about?" | Comparison | Market | Bullets |
-| "Do an analysis on competitive threats" | Analysis | Competitive | Full Report |
-| "Map the enterprise buyer journey" | Analysis | Product | Customer Journey |
-| "Create an empathy map for our ideal customer" | Analysis | Product | Empathy Map |
+| Query | Type | Data Path | Agent Action |
+|-------|------|-----------|-------------|
+| "What company does John work at?" | Lookup | VFS | `cat /John_Doe/info` |
+| "What's John's state of play?" | Lookup | VFS | `cat /John_Doe/state` |
+| "How many customers have we talked to?" | Lookup | CLI | `person list --type customer` |
+| "How many times was pricing discussed?" | Lookup | CLI | `aggregate tags` → read pricing count |
+| "What are the top pain points?" | Comparison | CLI | `search interactions --tag product --format json` → frequency table |
+| "How do fintech vs healthcare view pricing?" | Comparison | CLI | Two `search interactions` calls, compare |
+| "What are investors worried about?" | Comparison | CLI | `search interactions --type investor --format json` → bullets |
+| "Do an analysis on competitive threats" | Analysis | CLI + VFS | Multiple searches + transcript reads → full report |
+| "Map the enterprise buyer journey" | Analysis | CLI + VFS | Search + read `context/output-formats.md` → journey map |
+| "Create an empathy map for our ideal customer" | Analysis | CLI + VFS | Search + aggregate → empathy map format |
