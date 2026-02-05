@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from config import (
     ANALYSIS_MAX_TOKENS,
+    DIARIZATION_MAX_TOKENS,
     MODEL_NAME,
     MODEL_TEMPERATURE,
     ROLLING_UPDATE_MAX_TOKENS,
@@ -23,6 +24,7 @@ from prompts import (
     INVESTOR_ANALYSIS_PROMPT,
     ROLLING_UPDATE_PROMPT,
     SPEAKER_IDENTIFICATION_PROMPT,
+    TRANSCRIPT_DIARIZATION_PROMPT,
 )
 
 
@@ -62,6 +64,25 @@ class SpeakerIdentificationSchema(BaseModel):
     )
     reasoning: str = Field(
         description="Brief explanation of how you identified the subject"
+    )
+
+
+class UtteranceSchema(BaseModel):
+    """A single speaker utterance."""
+    speaker: str = Field(description="Speaker letter (A, B, C, etc.)")
+    text: str = Field(description="The text spoken by this speaker in this turn")
+
+
+class TranscriptDiarizationSchema(BaseModel):
+    """Schema for combined diarization + subject identification output."""
+    utterances: list[UtteranceSchema] = Field(
+        description="The full transcript segmented into speaker-labeled utterances, in order"
+    )
+    subject_speaker: str = Field(
+        description="The speaker letter (A, B, C, etc.) that is the subject"
+    )
+    reasoning: str = Field(
+        description="Brief explanation of how speakers were identified and which is the subject"
     )
 
 
@@ -131,6 +152,52 @@ def identify_subject_speaker(
     print(f"    Reasoning: {result.reasoning}")
 
     return result.subject_speaker
+
+
+def diarize_transcript(
+    raw_text: str,
+    subject_name: str,
+    context: str = "",
+) -> tuple[dict, str]:
+    """Diarize a raw transcript and identify the subject speaker in a single LLM call.
+
+    Args:
+        raw_text: The raw transcript text (no speaker labels)
+        subject_name: Name of the person being discussed/interviewed
+        context: Optional context about the conversation
+
+    Returns:
+        Tuple of (transcript_dict, subject_speaker_letter)
+    """
+    llm = _get_llm(DIARIZATION_MAX_TOKENS)
+    structured_llm = llm.with_structured_output(TranscriptDiarizationSchema)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("human", TRANSCRIPT_DIARIZATION_PROMPT),
+    ])
+
+    chain = prompt | structured_llm
+    result = chain.invoke({
+        "subject_name": subject_name,
+        "raw_text": raw_text,
+        "context": context or "No additional context provided.",
+    })
+
+    print(f"    Identified {subject_name} as Speaker {result.subject_speaker}")
+    print(f"    Reasoning: {result.reasoning}")
+    print(f"    Diarized into {len(result.utterances)} utterances")
+
+    utterances = [
+        {"speaker": u.speaker, "text": u.text}
+        for u in result.utterances
+    ]
+
+    transcript = {
+        "text": raw_text,
+        "utterances": utterances,
+    }
+
+    return transcript, result.subject_speaker
 
 
 def analyze_interaction(

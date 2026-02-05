@@ -71,3 +71,31 @@ ROLLING_UPDATE_PROMPT = """You are updating a person's profile based on a new in
    - Is written in present tense
 
 Be specific and actionable. Focus on insights that matter for the relationship."""
+
+TRANSCRIPT_DIARIZATION_PROMPT = """You are analyzing a raw transcript of a conversation. \
+The transcript has NO speaker labels - it is plain text. Your job is to:
+
+1. DIARIZE the transcript: identify distinct speakers and segment the text into \
+speaker-labeled utterances. Label speakers as "A", "B", "C", etc.
+2. IDENTIFY which speaker is the SUBJECT (the person we want to learn about, \
+not the interviewer(s)).
+
+## Subject Name
+{subject_name}
+
+## Additional Context
+{context}
+
+## Raw Transcript
+{raw_text}
+
+## Instructions
+- Read through the entire transcript carefully
+- Identify speaker changes based on conversational cues (questions vs answers, \
+topic shifts, turn-taking patterns, references to roles/names)
+- Assign consistent speaker letters (A, B, C, etc.) to each speaker throughout
+- Determine which speaker letter corresponds to the subject ({subject_name})
+- The subject is typically the person sharing information, experiences, and opinions, \
+while interviewers ask questions
+- Use the additional context (if provided) to help identify speakers and roles
+- Produce the COMPLETE transcript segmented into utterances - do not summarize or omit text"""

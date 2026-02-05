@@ -34,6 +34,11 @@ MODEL_TEMPERATURE = 0.3
 SPEAKER_ID_MAX_TOKENS = 1024
 ANALYSIS_MAX_TOKENS = 16384
 ROLLING_UPDATE_MAX_TOKENS = 4096
+DIARIZATION_MAX_TOKENS = 16384
+
+# File type detection
+TRANSCRIPT_EXTENSIONS = {".txt", ".md"}
+RECORDING_EXTENSIONS = {".mp4", ".m4a", ".mov", ".wav", ".webm", ".mp3", ".aac", ".ogg", ".flac"}
 
 # Database settings
 BASE_DIR = Path(__file__).parent

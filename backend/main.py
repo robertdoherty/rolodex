@@ -15,7 +15,7 @@ from database import (
     init_db,
     list_persons,
 )
-from services.ingestion import ingest_recording
+from services.ingestion import ingest_recording, ingest_transcript
 
 
 @click.group()
@@ -159,17 +159,29 @@ def person_list(person_type: str | None):
 
 
 @cli.command()
-@click.argument("video_path", required=False, default=None, type=click.Path())
+@click.argument("file_path", required=False, default=None, type=click.Path())
 @click.option("--person", "-p", "person_name", default=None, help="Person name")
 @click.option("--date", "-d", default=None, help="Date (YYYY-MM-DD), defaults to today")
-def ingest(video_path: str | None, person_name: str | None, date: str | None):
-    """Ingest a recording and process through the pipeline."""
+def ingest(file_path: str | None, person_name: str | None, date: str | None):
+    """Ingest a recording or transcript and process through the pipeline."""
     import os
-    if video_path is None:
-        video_path = click.prompt("Recording path")
-    if not os.path.exists(video_path):
-        click.echo(f"Error: Path '{video_path}' does not exist.")
+    from config import TRANSCRIPT_EXTENSIONS, RECORDING_EXTENSIONS
+
+    if file_path is None:
+        file_path = click.prompt("File path")
+    if not os.path.exists(file_path):
+        click.echo(f"Error: Path '{file_path}' does not exist.")
         return
+
+    ext = os.path.splitext(file_path)[1].lower()
+    is_transcript = ext in TRANSCRIPT_EXTENSIONS
+    if not is_transcript and ext not in RECORDING_EXTENSIONS:
+        click.echo(
+            f"Error: Unsupported file type '{ext}'. "
+            f"Supported: {', '.join(sorted(TRANSCRIPT_EXTENSIONS | RECORDING_EXTENSIONS))}"
+        )
+        return
+
     if person_name is None:
         persons = list_persons()
         if persons:
@@ -187,8 +199,20 @@ def ingest(video_path: str | None, person_name: str | None, date: str | None):
     if date:
         interaction_date = datetime.strptime(date, "%Y-%m-%d")
 
+    context = ""
+    if is_transcript:
+        context = click.prompt(
+            "Context about this conversation (optional, press Enter to skip)",
+            default="",
+            show_default=False,
+        )
+
     try:
-        interaction = ingest_recording(video_path, person_name, interaction_date)
+        if is_transcript:
+            interaction = ingest_transcript(file_path, person_name, interaction_date, context)
+        else:
+            interaction = ingest_recording(file_path, person_name, interaction_date)
+
         click.echo(f"\nTakeaways:")
         for t in interaction.takeaways:
             click.echo(f"  - {t}")

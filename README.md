@@ -122,24 +122,43 @@ These are used within the pipeline but not persisted directly:
 
 ## Pipeline Flow
 
-The ingestion pipeline processes recordings in 6 steps:
+Rolodex supports two ingestion paths that converge into a shared pipeline:
 
 ```mermaid
 flowchart TD
-    A["Audio/Video File"] --> B["1. Extract Audio & Transcribe\n(ffmpeg + AssemblyAI diarization)"]
-    B --> C["2. Identify Subject Speaker\n(LLM determines which speaker is the subject)"]
-    C --> D["3. Analyze Interaction\n(LLM extracts takeaways + tags from subject's statements)"]
-    D --> E["4. Generate Rolling Update\n(LLM compares old state_of_play with new takeaways)"]
-    E --> F["5. Store Interaction\n(Save to SQLite)"]
-    F --> G["6. Update Person State\n(Write new state_of_play + last_delta)"]
+    A["Audio/Video File\n(.mp4, .m4a, .wav, etc.)"] --> B["1. Extract Audio & Transcribe\n(ffmpeg + AssemblyAI diarization)"]
+    B --> C["2. Identify Subject Speaker\n(LLM determines which speaker letter is the subject)"]
+
+    T["Text Transcript\n(.txt, .md)"] --> U["1. Read Transcript File"]
+    U --> V["2. Diarize & Identify Subject\n(Single LLM call: segment into speaker utterances + identify subject)"]
+
+    C --> D["3. Relabel Speakers\n(Subject → real name, others → Interviewer N)"]
+    V --> D
+    D --> E["4. Analyze Interaction\n(LLM extracts takeaways + tags from subject's statements)"]
+    E --> F["5. Generate Rolling Update\n(LLM compares old state_of_play with new takeaways)"]
+    F --> G["6. Store Interaction & Update Person State"]
 ```
 
 ### Step Details
+
+**Recording path** (audio/video files):
 
 | Step | Module | LLM Call | Output |
 |------|--------|----------|--------|
 | 1. Extract & Transcribe | `transcription.py` | No (AssemblyAI API) | Speaker-diarized transcript dict |
 | 2. Identify Speaker | `analysis.py` | Yes (`SpeakerIdentificationSchema`) | Speaker letter (A, B, C...) |
+
+**Transcript path** (plain text files without speaker labels):
+
+| Step | Module | LLM Call | Output |
+|------|--------|----------|--------|
+| 1. Read File | `ingestion.py` | No | Raw text string |
+| 2. Diarize & Identify | `analysis.py` | Yes (`TranscriptDiarizationSchema`) | Speaker-labeled utterances + subject speaker |
+
+**Shared steps** (both paths):
+
+| Step | Module | LLM Call | Output |
+|------|--------|----------|--------|
 | 3. Analyze Interaction | `analysis.py` | Yes (`InteractionAnalysisSchema`) | Takeaways + tags |
 | 4. Rolling Update | `analysis.py` | Yes (`RollingUpdateSchema`) | Delta + updated state |
 | 5. Store Interaction | `database.py` | No | Interaction row in SQLite |
@@ -290,12 +309,19 @@ python main.py person list --type investor
 python main.py person show "Jane Doe"
 ```
 
-### Recording Ingestion
+### Ingestion
+
+The `ingest` command auto-detects file type by extension and routes to the appropriate pipeline.
 
 ```bash
-# Process a recording for a person
+# Ingest an audio/video recording
 python main.py ingest path/to/recording.m4a --person "Jane Doe" --date 2024-01-15
+
+# Ingest a plain-text transcript (no speaker labels needed)
+python main.py ingest path/to/transcript.txt --person "Jane Doe" --date 2024-01-15
 ```
+
+For text transcripts, you'll be prompted for optional context about the conversation (e.g., "This was a sales demo with the CEO of Acme Corp"). This helps the LLM identify speakers more accurately. Press Enter to skip.
 
 ### Viewing Transcripts
 
@@ -333,8 +359,8 @@ python main.py tags
 | `backend/database.py` | SQLite CRUD operations |
 | `backend/prompts.py` | LLM prompt templates |
 | `backend/services/transcription.py` | Audio extraction (ffmpeg), speaker diarization (AssemblyAI) |
-| `backend/services/analysis.py` | LLM-powered analysis: speaker ID, interaction analysis, rolling updates |
-| `backend/services/ingestion.py` | Pipeline orchestration (6-step flow) |
+| `backend/services/analysis.py` | LLM-powered analysis: speaker ID, transcript diarization, interaction analysis, rolling updates |
+| `backend/services/ingestion.py` | Pipeline orchestration (recording + transcript paths, shared 6-step flow) |
 
 ## Configuration
 
@@ -347,6 +373,7 @@ Key settings in `backend/config.py`:
 | `SPEAKER_ID_MAX_TOKENS` | `1024` | Max output tokens for speaker identification |
 | `ANALYSIS_MAX_TOKENS` | `16384` | Max output tokens for interaction analysis |
 | `ROLLING_UPDATE_MAX_TOKENS` | `4096` | Max output tokens for rolling updates |
+| `DIARIZATION_MAX_TOKENS` | `16384` | Max output tokens for transcript diarization |
 | `DATABASE_PATH` | `data/rolodex.db` | SQLite database location |
 | `AUDIO_FORMAT` | `wav` | Extracted audio format |
 | `AUDIO_SAMPLE_RATE` | `16000` | Audio sample rate |
