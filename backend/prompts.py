@@ -101,3 +101,14 @@ entire transcript with no gaps and no overlaps
 while interviewers ask questions
 - Use the additional context (if provided) to help identify speakers and roles
 - Do NOT reproduce the transcript text - only return line numbers"""
+
+BACKGROUND_GENERATION_PROMPT = """Based on the following details, write a 1-2 sentence background for this person. Focus on who they are, their role, and what they care about.
+
+## Person
+Name: {person_name}
+Company: {current_company}
+
+## Key Takeaways from First Interaction
+{takeaways}
+
+Write a concise 1-2 sentence bio. No filler — just who they are and what matters to them."""
