@@ -159,11 +159,34 @@ def person_list(person_type: str | None):
 
 
 @cli.command()
-@click.argument("video_path", type=click.Path(exists=True))
-@click.option("--person", "-p", "person_name", required=True, help="Person name")
+@click.argument("video_path", required=False, default=None, type=click.Path())
+@click.option("--person", "-p", "person_name", default=None, help="Person name")
 @click.option("--date", "-d", default=None, help="Date (YYYY-MM-DD), defaults to today")
-def ingest(video_path: str, person_name: str, date: str | None):
+def ingest(video_path: str | None, person_name: str | None, date: str | None):
     """Ingest a recording and process through the pipeline."""
+    import os
+    if video_path is None:
+        video_path = click.prompt("Recording path")
+    if not os.path.exists(video_path):
+        click.echo(f"Error: Path '{video_path}' does not exist.")
+        return
+    if person_name is None:
+        persons = list_persons()
+        if persons:
+            click.echo("\nAvailable people:")
+            for i, p in enumerate(persons, 1):
+                click.echo(f"  {i}. {p.name} ({p.current_company})")
+            click.echo()
+            choice = click.prompt("Person (number or name)")
+            if choice.isdigit() and 1 <= int(choice) <= len(persons):
+                person_name = persons[int(choice) - 1].name
+            else:
+                person_name = choice
+        else:
+            person_name = click.prompt("Person name")
+    if date is None:
+        date = click.prompt("Date (YYYY-MM-DD)", default=datetime.now().strftime("%Y-%m-%d"))
+
     interaction_date = None
     if date:
         interaction_date = datetime.strptime(date, "%Y-%m-%d")
