@@ -173,15 +173,11 @@ def ingest(video_path: str | None, person_name: str | None, date: str | None):
     if person_name is None:
         persons = list_persons()
         if persons:
-            click.echo("\nAvailable people:")
-            for i, p in enumerate(persons, 1):
-                click.echo(f"  {i}. {p.name} ({p.current_company})")
-            click.echo()
-            choice = click.prompt("Person (number or name)")
-            if choice.isdigit() and 1 <= int(choice) <= len(persons):
-                person_name = persons[int(choice) - 1].name
-            else:
-                person_name = choice
+            from prompt_toolkit import prompt as pt_prompt
+            from prompt_toolkit.completion import FuzzyWordCompleter
+            names = [p.name for p in persons]
+            completer = FuzzyWordCompleter(names)
+            person_name = pt_prompt("Person (tab to complete): ", completer=completer).strip()
         else:
             person_name = click.prompt("Person name")
     if date is None:
