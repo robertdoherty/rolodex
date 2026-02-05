@@ -71,3 +71,14 @@ ROLLING_UPDATE_PROMPT = """You are updating a person's profile based on a new in
    - Is written in present tense
 
 Be specific and actionable. Focus on insights that matter for the relationship."""
+
+BACKGROUND_GENERATION_PROMPT = """Based on the following details, write a 1-2 sentence background for this person. Focus on who they are, their role, and what they care about.
+
+## Person
+Name: {person_name}
+Company: {current_company}
+
+## Key Takeaways from First Interaction
+{takeaways}
+
+Write a concise 1-2 sentence bio. No filler — just who they are and what matters to them."""

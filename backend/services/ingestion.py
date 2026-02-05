@@ -6,10 +6,11 @@ from pathlib import Path
 from database import (
     create_interaction,
     get_person,
+    update_person_background,
     update_person_state,
 )
 from models import Interaction
-from services.analysis import analyze_interaction, generate_rolling_update, identify_subject_speaker
+from services.analysis import analyze_interaction, generate_background, generate_rolling_update, identify_subject_speaker
 from services.transcription import transcribe_video
 
 
@@ -100,6 +101,17 @@ def ingest_recording(
         state_of_play=updated_state,
         last_delta=delta,
     )
+
+    # Auto-generate background on first interaction if blank
+    if not person.background.strip() and not person.interaction_ids:
+        print(f"    Generating background from first interaction...")
+        background = generate_background(
+            person_name=person_name,
+            current_company=person.current_company,
+            takeaways=takeaways,
+        )
+        update_person_background(person_name, background)
+        print(f"    Background set: {background}")
 
     print(f"Done! Created interaction #{interaction.id}")
     return interaction

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from config import (
     ANALYSIS_MAX_TOKENS,
+    BACKGROUND_MAX_TOKENS,
     MODEL_NAME,
     MODEL_TEMPERATURE,
     ROLLING_UPDATE_MAX_TOKENS,
@@ -18,6 +19,7 @@ from config import (
 )
 from local_secrets import GEMINI_API_KEY
 from prompts import (
+    BACKGROUND_GENERATION_PROMPT,
     COMPETITOR_ANALYSIS_PROMPT,
     CUSTOMER_ANALYSIS_PROMPT,
     INVESTOR_ANALYSIS_PROMPT,
@@ -52,6 +54,13 @@ class RollingUpdateSchema(BaseModel):
     )
     updated_state: str = Field(
         description="Comprehensive ~200 word summary of current truth about this person"
+    )
+
+
+class BackgroundSchema(BaseModel):
+    """Schema for background generation output."""
+    background: str = Field(
+        description="1-2 sentence background bio for this person"
     )
 
 
@@ -201,3 +210,28 @@ def generate_rolling_update(
     })
 
     return result.delta, result.updated_state
+
+
+def generate_background(
+    person_name: str,
+    current_company: str,
+    takeaways: list[str],
+) -> str:
+    """Generate a 1-2 sentence background from first interaction takeaways."""
+    llm = _get_llm(BACKGROUND_MAX_TOKENS)
+    structured_llm = llm.with_structured_output(BackgroundSchema)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("human", BACKGROUND_GENERATION_PROMPT),
+    ])
+
+    takeaways_text = "\n".join(f"- {t}" for t in takeaways)
+
+    chain = prompt | structured_llm
+    result = chain.invoke({
+        "person_name": person_name,
+        "current_company": current_company,
+        "takeaways": takeaways_text,
+    })
+
+    return result.background

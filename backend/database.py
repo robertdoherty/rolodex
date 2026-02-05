@@ -168,6 +168,20 @@ def update_person_state(
     conn.close()
 
 
+def update_person_background(name: str, background: str) -> None:
+    """Update a person's background."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "UPDATE persons SET background = ? WHERE name = ?",
+        (background, name),
+    )
+
+    conn.commit()
+    conn.close()
+
+
 def create_interaction(
     person_name: str,
     date: datetime,
