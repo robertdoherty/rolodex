@@ -67,16 +67,17 @@ class SpeakerIdentificationSchema(BaseModel):
     )
 
 
-class UtteranceSchema(BaseModel):
-    """A single speaker utterance."""
+class SpeakerSegment(BaseModel):
+    """A contiguous block of lines belonging to one speaker."""
     speaker: str = Field(description="Speaker letter (A, B, C, etc.)")
-    text: str = Field(description="The text spoken by this speaker in this turn")
+    start_line: int = Field(description="First line number of this speaker's turn (1-indexed)")
+    end_line: int = Field(description="Last line number of this speaker's turn (1-indexed)")
 
 
 class TranscriptDiarizationSchema(BaseModel):
     """Schema for combined diarization + subject identification output."""
-    utterances: list[UtteranceSchema] = Field(
-        description="The full transcript segmented into speaker-labeled utterances, in order"
+    segments: list[SpeakerSegment] = Field(
+        description="Speaker turns as line ranges covering the entire transcript, in order"
     )
     subject_speaker: str = Field(
         description="The speaker letter (A, B, C, etc.) that is the subject"
@@ -161,6 +162,9 @@ def diarize_transcript(
 ) -> tuple[dict, str]:
     """Diarize a raw transcript and identify the subject speaker in a single LLM call.
 
+    Numbers the lines, asks the LLM for speaker line-ranges (compact output),
+    then reconstructs full utterances from the original text.
+
     Args:
         raw_text: The raw transcript text (no speaker labels)
         subject_name: Name of the person being discussed/interviewed
@@ -169,6 +173,9 @@ def diarize_transcript(
     Returns:
         Tuple of (transcript_dict, subject_speaker_letter)
     """
+    lines = raw_text.splitlines()
+    numbered_text = "\n".join(f"{i+1}: {line}" for i, line in enumerate(lines))
+
     llm = _get_llm(DIARIZATION_MAX_TOKENS)
     structured_llm = llm.with_structured_output(TranscriptDiarizationSchema)
 
@@ -179,18 +186,22 @@ def diarize_transcript(
     chain = prompt | structured_llm
     result = chain.invoke({
         "subject_name": subject_name,
-        "raw_text": raw_text,
+        "numbered_text": numbered_text,
         "context": context or "No additional context provided.",
     })
 
     print(f"    Identified {subject_name} as Speaker {result.subject_speaker}")
     print(f"    Reasoning: {result.reasoning}")
-    print(f"    Diarized into {len(result.utterances)} utterances")
+    print(f"    Diarized into {len(result.segments)} segments")
 
-    utterances = [
-        {"speaker": u.speaker, "text": u.text}
-        for u in result.utterances
-    ]
+    # Reconstruct utterances from line ranges
+    utterances = []
+    for seg in result.segments:
+        start = max(seg.start_line - 1, 0)  # convert to 0-indexed
+        end = min(seg.end_line, len(lines))
+        text = "\n".join(lines[start:end]).strip()
+        if text:
+            utterances.append({"speaker": seg.speaker, "text": text})
 
     transcript = {
         "text": raw_text,
