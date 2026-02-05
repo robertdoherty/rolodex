@@ -37,6 +37,17 @@ def init_db() -> None:
         )
     """)
 
+    # Migrate: add columns that may be missing from older schemas
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(persons)").fetchall()}
+    for col, default in [
+        ("linkedin_url", "''"),
+        ("company_industry", "''"),
+        ("company_revenue", "''"),
+        ("company_headcount", "''"),
+    ]:
+        if col not in existing:
+            cursor.execute(f"ALTER TABLE persons ADD COLUMN {col} TEXT DEFAULT {default}")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS interactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,7 +90,7 @@ def create_person(
 
     cursor.execute(
         """
-        INSERT INTO persons (name, current_company, type, background, linkedin_url, company_industry, company_revenue, company_headcount)
+        INSERT OR REPLACE INTO persons (name, current_company, type, background, linkedin_url, company_industry, company_revenue, company_headcount)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (name, current_company, person_type.value if person_type else "", background, linkedin_url, company_industry, company_revenue, company_headcount),
@@ -98,6 +109,20 @@ def create_person(
         company_revenue=company_revenue,
         company_headcount=company_headcount,
     )
+
+
+def delete_person(name: str) -> bool:
+    """Delete a person and their interactions from the database."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM interactions WHERE person_name = ?", (name,))
+    cursor.execute("DELETE FROM persons WHERE name = ?", (name,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 def get_person(name: str) -> Optional[Person]:

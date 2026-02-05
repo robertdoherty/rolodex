@@ -8,6 +8,7 @@ import vfs
 from config import PersonType, Tag, TAG_DESCRIPTIONS
 from database import (
     create_person,
+    delete_person,
     get_interactions,
     get_interactions_by_tag,
     get_person,
@@ -55,10 +56,45 @@ def person_create(name: str | None, company: str | None, person_type: str | None
     if company is None:
         company = click.prompt("Company")
 
+    # Prompt for optional fields if not provided via flags
+    if not person_type:
+        person_type = click.prompt(
+            "Type (customer/investor/competitor)",
+            default="",
+            show_default=False,
+        )
+    if not background:
+        background = click.prompt("Background", default="", show_default=False)
+    if not linkedin:
+        linkedin = click.prompt("LinkedIn URL", default="", show_default=False)
+    if not industry:
+        industry = click.prompt("Industry", default="", show_default=False)
+    if not revenue:
+        revenue = click.prompt("Revenue ($)", default="", show_default=False)
+    if not headcount:
+        headcount = click.prompt("Headcount", default="", show_default=False)
+
     ptype = PersonType(person_type) if person_type else None
     p = create_person(name, company, ptype, background, linkedin, industry, revenue, headcount)
     type_str = p.type.value if p.type else "person"
     click.echo(f"Created {type_str}: {p.name} @ {p.current_company}")
+
+
+@person.command("delete")
+@click.argument("name")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def person_delete(name: str, yes: bool):
+    """Delete a person and their interactions."""
+    p = get_person(name)
+    if p is None:
+        click.echo(f"Person '{name}' not found.")
+        return
+
+    if not yes:
+        click.confirm(f"Delete '{name}' and all their interactions?", abort=True)
+
+    delete_person(name)
+    click.echo(f"Deleted: {name}")
 
 
 @person.command("show")

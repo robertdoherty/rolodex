@@ -61,6 +61,10 @@ erDiagram
         text current_company "Organization affiliation"
         text type "customer | investor | competitor"
         text background "Static bio / context"
+        text linkedin_url "LinkedIn profile URL"
+        text company_industry "Company industry"
+        text company_revenue "Company revenue"
+        text company_headcount "Company headcount"
         text state_of_play "AI-updated rolling summary (~200 words)"
         text last_delta "What changed in most recent meeting"
     }
@@ -82,6 +86,10 @@ The core entity representing an individual contact:
 - **current_company**: Organization affiliation
 - **type**: `customer` | `investor` | `competitor`
 - **background**: Static bio / context
+- **linkedin_url**: LinkedIn profile URL
+- **company_industry**: Company industry
+- **company_revenue**: Company revenue ($)
+- **company_headcount**: Company headcount (people)
 - **state_of_play**: AI-generated ~200-word rolling summary that evolves with each interaction
 - **last_delta**: What changed in the most recent meeting
 - **interaction_ids** (derived, not stored): List of linked interaction IDs, populated by querying the interactions table
@@ -261,8 +269,18 @@ python main.py cat /John_Doe/interactions/2026-01-05/takeaways
 ### Person Management
 
 ```bash
-# Create a new person
-python main.py person create "Jane Doe" --company "Acme Inc" --type customer --background "VP of Engineering, 10 years in SaaS"
+# Create a new person (prompts interactively for all fields)
+python main.py person create
+
+# Create with flags (skips prompts for provided fields)
+python main.py person create "Jane Doe" --company "Acme Inc" --type customer --background "VP of Engineering" --linkedin "https://linkedin.com/in/janedoe" --industry "SaaS" --revenue "10M" --headcount "50"
+
+# Re-creating an existing person overwrites their info (interactions are preserved)
+python main.py person create "Jane Doe" --company "New Corp"
+
+# Delete a person and all their interactions
+python main.py person delete "Jane Doe"
+python main.py person delete "Jane Doe" -y  # skip confirmation
 
 # List all people
 python main.py person list
