@@ -133,12 +133,14 @@ def _get_prompt_for_type(person_type: PersonType) -> str:
 def identify_subject_speaker(
     transcript: dict,
     subject_name: str,
+    context: str = "",
 ) -> str:
     """Identify which speaker is the subject being interviewed.
 
     Args:
         transcript: Dictionary with transcript data
         subject_name: Name of the person being interviewed
+        context: Optional context about the conversation
 
     Returns:
         Speaker letter (A, B, C, etc.) of the subject
@@ -156,6 +158,7 @@ def identify_subject_speaker(
     result = chain.invoke({
         "subject_name": subject_name,
         "transcript": formatted_transcript,
+        "context": context or "No additional context provided.",
     })
 
     print(f"    Identified {subject_name} as Speaker {result.subject_speaker}")

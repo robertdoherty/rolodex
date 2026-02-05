@@ -207,6 +207,19 @@ def update_person_background(name: str, background: str) -> None:
     conn.close()
 
 
+def delete_interaction(interaction_id: int) -> bool:
+    """Delete an interaction by ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM interactions WHERE id = ?", (interaction_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
 def create_interaction(
     person_name: str,
     date: datetime,

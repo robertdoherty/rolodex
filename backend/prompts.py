@@ -16,6 +16,9 @@ Look for clues like:
 ## Subject Name (the person being interviewed)
 {subject_name}
 
+## Additional Context
+{context}
+
 ## Transcript
 {transcript}
 

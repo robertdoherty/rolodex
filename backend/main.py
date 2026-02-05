@@ -8,6 +8,7 @@ import vfs
 from config import PersonType, Tag, TAG_DESCRIPTIONS
 from database import (
     create_person,
+    delete_interaction,
     delete_person,
     get_interactions,
     get_interactions_by_tag,
@@ -158,6 +159,68 @@ def person_list(person_type: str | None):
     click.echo()
 
 
+@cli.group()
+def interaction():
+    """Manage interactions."""
+    pass
+
+
+@interaction.command("delete")
+@click.option("--person", "-p", "person_name", default=None, help="Person name")
+@click.option("--date", "-d", "date_str", default=None, help="Interaction date (YYYY-MM-DD)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def interaction_delete(person_name: str | None, date_str: str | None, yes: bool):
+    """Delete an interaction by person and date."""
+    from prompt_toolkit import prompt as pt_prompt
+    from prompt_toolkit.completion import FuzzyWordCompleter
+
+    # Pick person with fuzzy completion
+    if person_name is None:
+        persons = list_persons()
+        if not persons:
+            click.echo("No people found.")
+            return
+        names = [p.name for p in persons]
+        completer = FuzzyWordCompleter(names)
+        person_name = pt_prompt("Person (tab to complete): ", completer=completer).strip()
+
+    p = get_person(person_name)
+    if p is None:
+        click.echo(f"Person '{person_name}' not found.")
+        return
+
+    interactions = get_interactions(person_name)
+    if not interactions:
+        click.echo(f"No interactions found for '{person_name}'.")
+        return
+
+    # Pick date with fuzzy completion
+    if date_str is None:
+        dates = [i.date.strftime("%Y-%m-%d") for i in interactions]
+        completer = FuzzyWordCompleter(dates)
+        date_str = pt_prompt("Date (tab to complete): ", completer=completer).strip()
+
+    matches = [i for i in interactions if i.date.strftime("%Y-%m-%d") == date_str]
+    if not matches:
+        click.echo(f"No interactions found for '{person_name}' on {date_str}.")
+        return
+
+    # Show what will be deleted
+    for i in matches:
+        tags_str = ", ".join(t.value for t in i.tags)
+        click.echo(f"\n  Interaction #{i.id} — {date_str} — Tags: {tags_str}")
+        for t in i.takeaways:
+            click.echo(f"    - {t}")
+
+    label = "interaction" if len(matches) == 1 else f"{len(matches)} interactions"
+    if not yes:
+        click.confirm(f"\nDelete {label}?", abort=True)
+
+    for i in matches:
+        delete_interaction(i.id)
+    click.echo(f"Deleted {label} for '{person_name}' on {date_str}.")
+
+
 @cli.command()
 @click.argument("file_path", required=False, default=None, type=click.Path())
 @click.option("--person", "-p", "person_name", default=None, help="Person name")
@@ -199,19 +262,17 @@ def ingest(file_path: str | None, person_name: str | None, date: str | None):
     if date:
         interaction_date = datetime.strptime(date, "%Y-%m-%d")
 
-    context = ""
-    if is_transcript:
-        context = click.prompt(
-            "Context about this conversation (optional, press Enter to skip)",
-            default="",
-            show_default=False,
-        )
+    context = click.prompt(
+        "Context about this conversation (optional, press Enter to skip)",
+        default="",
+        show_default=False,
+    )
 
     try:
         if is_transcript:
             interaction = ingest_transcript(file_path, person_name, interaction_date, context)
         else:
-            interaction = ingest_recording(file_path, person_name, interaction_date)
+            interaction = ingest_recording(file_path, person_name, interaction_date, context)
 
         click.echo(f"\nTakeaways:")
         for t in interaction.takeaways:

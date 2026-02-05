@@ -107,6 +107,7 @@ def ingest_recording(
     video_path: str | Path,
     person_name: str,
     date: datetime | None = None,
+    context: str = "",
 ) -> Interaction:
     """Ingest a video/audio recording through the full pipeline.
 
@@ -114,6 +115,7 @@ def ingest_recording(
         video_path: Path to the video/audio file (mp4, m4a, etc.)
         person_name: Name of the person in the recording
         date: Date of the interaction (defaults to now)
+        context: Optional context about the conversation
 
     Returns:
         The created Interaction object
@@ -131,7 +133,7 @@ def ingest_recording(
     transcript = transcribe_video(video_path)
 
     print(f"[2/6] Identifying subject speaker...")
-    subject_speaker = identify_subject_speaker(transcript, person_name)
+    subject_speaker = identify_subject_speaker(transcript, person_name, context)
 
     return _run_shared_pipeline(transcript, subject_speaker, person_name, person, date)
 
