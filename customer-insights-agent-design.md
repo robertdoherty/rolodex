@@ -8,21 +8,58 @@ An aggregation agent that allows freeform questions across all people and intera
 
 ## Skill Folder Structure
 
-The agent is a single skill. Everything lives in one folder:
+The agent is a single skill following the [Agent Skills](https://agentskills.io) open standard. Everything lives in one folder under `.claude/skills/`:
 
 ```
-skills/
+.claude/skills/
   customer-insights/
-    skill.md                  # Agent instructions, persona lenses, response calibration
-    context/
-      search-dimensions.md    # What the agent can filter/search on
-      output-formats.md       # Format templates (2x2, empathy map, etc.)
-      enums.md                # Valid values for tags, person types, industries
+    SKILL.md                    # Agent instructions (entrypoint, <500 lines)
+    references/
+      search-dimensions.md      # What the agent can filter/search on
+      output-formats.md         # Format templates (2x2, empathy map, etc.)
+      enums.md                  # Valid values for tags, person types, industries
 ```
 
-- `skill.md` is the entrypoint. It contains the agent's behavioral instructions and declares the tools it can use.
-- `context/` holds reference material the agent reads as needed. These are not prompts — they're lookup tables and format templates.
+### Design Decisions
+
+- **`SKILL.md`** is the required entrypoint. It contains the agent's behavioral instructions, persona lenses, and response calibration rules. Kept under 500 lines per the spec — detailed reference material lives in `references/`.
+- **`references/`** holds lookup tables and format templates the agent reads on demand. These files are loaded only when the agent needs them (progressive disclosure), keeping the base context small.
 - **Tools are CLI commands.** The agent invokes them via bash. No abstract Python functions — everything runs through `python main.py`.
+- **Runs inline (not forked).** The agent needs conversation history for follow-up questions ("Which of those are from fintech?"), so `context: fork` is not used.
+
+### SKILL.md Frontmatter
+
+```yaml
+---
+name: customer-insights
+description: >
+  Answers freeform questions across all people and interactions in the Rolodex.
+  Use when the user asks about customers, investors, competitors, trends, pain points,
+  or wants analysis across interactions. Handles lookups, comparisons, and full reports.
+allowed-tools: Bash(python main.py *) Read Grep
+---
+```
+
+| Field | Value | Rationale |
+|-------|-------|-----------|
+| `name` | `customer-insights` | Matches directory name (required by spec) |
+| `description` | (see above) | Includes keywords for auto-invocation: "customers", "investors", "pain points", "analysis", etc. |
+| `allowed-tools` | `Bash(python main.py *)` `Read` `Grep` | CLI commands via bash, plus Read/Grep for transcript deep-dives |
+| `disable-model-invocation` | omitted (default `false`) | Claude should auto-invoke this when the user asks analytical questions |
+| `user-invocable` | omitted (default `true`) | User can also invoke directly via `/customer-insights` |
+| `context` | omitted (inline) | Needs conversation history for follow-up refinements |
+
+### Progressive Disclosure
+
+The spec defines three loading levels. Here's how this skill maps to them:
+
+| Level | What loads | When | Token cost |
+|-------|-----------|------|------------|
+| **Metadata** | `name` + `description` from frontmatter | Always (every session) | ~50 tokens |
+| **Instructions** | Full `SKILL.md` body | When skill activates | <5000 tokens |
+| **Resources** | `references/search-dimensions.md`, `references/output-formats.md`, `references/enums.md` | On demand during analysis | Variable |
+
+The agent only reads `references/` files when it needs them — e.g., `output-formats.md` is loaded only for full analysis requests, not simple lookups.
 
 ---
 
@@ -144,7 +181,7 @@ Examples:
 
 ### Analysis (Full Report)
 **Triggers:** "analyze", "report", "deep dive", "map out", "do an analysis"
-**Tools:** Multiple CLI searches + aggregation, reads `context/output-formats.md` for template
+**Tools:** Multiple CLI searches + aggregation, reads `references/output-formats.md` for template
 **Output:** Structured format with visualization, headers, comprehensive coverage
 
 Examples:
@@ -310,7 +347,7 @@ These power the `--text` flag on search commands.
 
 ## Conversation Context
 
-The agent maintains context within a session for follow-up questions.
+The agent runs inline (not forked), so it maintains conversation context naturally within a session for follow-up questions.
 
 **Example flow:**
 ```
@@ -331,14 +368,14 @@ Agent: [runs: search interactions --tag pricing --type customer --industry healt
 Agent: [compares the two sets]
 ```
 
-Context resets on new unrelated question or explicit reset.
+No custom context management needed — Claude Code handles this natively.
 
 ---
 
 ## Implementation Steps
 
-1. **Write `skill.md`** — agent instructions, tool declarations (CLI commands + VFS), persona lenses, response calibration rules. This is the spec the agent follows.
-2. **Write `context/` files** — `search-dimensions.md`, `output-formats.md`, `enums.md` as reference material the skill.md points to.
+1. **Write `SKILL.md`** — frontmatter (name, description, allowed-tools) + agent instructions, persona lenses, response calibration rules. Keep under 500 lines. This is the spec the agent follows.
+2. **Write `references/` files** — `search-dimensions.md`, `output-formats.md`, `enums.md` as reference material the SKILL.md points to.
 3. **Add FTS5 indexes** to database schema (`database.py` init_db migration).
 4. **Build `search interactions` CLI command** — multi-filter search with `--format json` output.
 5. **Build `search people` CLI command** — person search with text matching.
@@ -360,5 +397,5 @@ Context resets on new unrelated question or explicit reset.
 | "How do fintech vs healthcare view pricing?" | Comparison | CLI | Two `search interactions` calls, compare |
 | "What are investors worried about?" | Comparison | CLI | `search interactions --type investor --format json` → bullets |
 | "Do an analysis on competitive threats" | Analysis | CLI + VFS | Multiple searches + transcript reads → full report |
-| "Map the enterprise buyer journey" | Analysis | CLI + VFS | Search + read `context/output-formats.md` → journey map |
+| "Map the enterprise buyer journey" | Analysis | CLI + VFS | Search + read `references/output-formats.md` → journey map |
 | "Create an empathy map for our ideal customer" | Analysis | CLI + VFS | Search + aggregate → empathy map format |

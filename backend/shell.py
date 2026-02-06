@@ -1,5 +1,6 @@
 """Interactive REPL shell with filesystem-style navigation."""
 
+import os
 import shlex
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +19,7 @@ from database import (
 from services.ingestion import ingest_recording
 
 
-COMMANDS = ["ls", "cd", "cat", "tree", "pwd", "ingest", "mkperson", "search", "tags", "help", "exit"]
+COMMANDS = ["ls", "cd", "cat", "tree", "pwd", "clear", "ingest", "mkperson", "search", "tags", "help", "exit"]
 
 
 class RolodexCompleter(Completer):
@@ -178,6 +179,9 @@ class RolodexShell:
         path = vfs.resolve_path(self.cwd, target)
         print(vfs.tree(path))
 
+    def cmd_clear(self, args: list[str]) -> None:
+        os.system("cls" if os.name == "nt" else "clear")
+
     def cmd_ingest(self, args: list[str]) -> None:
         if len(args) < 1:
             print("Usage: ingest <video_path> --person <name> [--date YYYY-MM-DD]")
@@ -320,6 +324,7 @@ Commands:
   cat <path>                           Show file contents
   tree [path]                          Show directory tree
   pwd                                  Print working directory
+  clear                                Clear the screen
   ingest <file> --person <name>        Ingest a recording
   mkperson [name] [options]            Create a person (prompts for missing fields)
   search tag <tag>                     Search interactions by tag
