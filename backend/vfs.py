@@ -52,11 +52,11 @@ def _build_date_slugs(interactions: list[Interaction]) -> dict[str, Interaction]
     slug_map: dict[str, Interaction] = {}
     for date_str, group in by_date.items():
         group.sort(key=lambda i: i.id)
-        for idx, interaction in enumerate(group):
-            if idx == 0:
-                slug_map[date_str] = interaction
-            else:
-                slug_map[f"{date_str}_{idx + 1}"] = interaction
+        if len(group) == 1:
+            slug_map[date_str] = group[0]
+        else:
+            for idx, interaction in enumerate(group, start=1):
+                slug_map[f"{date_str}_{idx}"] = interaction
     return slug_map
 
 

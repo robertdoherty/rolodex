@@ -167,12 +167,18 @@ def interaction():
 
 @interaction.command("delete")
 @click.option("--person", "-p", "person_name", default=None, help="Person name")
-@click.option("--date", "-d", "date_str", default=None, help="Interaction date (YYYY-MM-DD)")
+@click.option("--date", "-d", "date_str", default=None, help="Interaction date slug (e.g. 2025-09-05 or 2025-09-05_2)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def interaction_delete(person_name: str | None, date_str: str | None, yes: bool):
-    """Delete an interaction by person and date."""
+    """Delete an interaction by person and date slug.
+
+    When multiple interactions share a date, they are shown as
+    2025-09-05, 2025-09-05_2, 2025-09-05_3, etc. — matching the
+    virtual filesystem convention.
+    """
     from prompt_toolkit import prompt as pt_prompt
     from prompt_toolkit.completion import FuzzyWordCompleter
+    from vfs import _build_date_slugs
 
     # Pick person with fuzzy completion
     if person_name is None:
@@ -194,31 +200,31 @@ def interaction_delete(person_name: str | None, date_str: str | None, yes: bool)
         click.echo(f"No interactions found for '{person_name}'.")
         return
 
-    # Pick date with fuzzy completion
+    # Build date slugs (same logic as VFS: date, date_2, date_3, ...)
+    slug_map = _build_date_slugs(interactions)
+
+    # Pick date slug with fuzzy completion
     if date_str is None:
-        dates = [i.date.strftime("%Y-%m-%d") for i in interactions]
-        completer = FuzzyWordCompleter(dates)
+        slugs = sorted(slug_map.keys())
+        completer = FuzzyWordCompleter(slugs)
         date_str = pt_prompt("Date (tab to complete): ", completer=completer).strip()
 
-    matches = [i for i in interactions if i.date.strftime("%Y-%m-%d") == date_str]
-    if not matches:
-        click.echo(f"No interactions found for '{person_name}' on {date_str}.")
+    if date_str not in slug_map:
+        click.echo(f"No interaction found for '{person_name}' with slug '{date_str}'.")
         return
 
-    # Show what will be deleted
-    for i in matches:
-        tags_str = ", ".join(t.value for t in i.tags)
-        click.echo(f"\n  Interaction #{i.id} — {date_str} — Tags: {tags_str}")
-        for t in i.takeaways:
-            click.echo(f"    - {t}")
+    # Single interaction selected via slug
+    interaction = slug_map[date_str]
+    tags_str = ", ".join(t.value for t in interaction.tags)
+    click.echo(f"\n  Interaction #{interaction.id} — {date_str} — Tags: {tags_str}")
+    for t in interaction.takeaways:
+        click.echo(f"    - {t}")
 
-    label = "interaction" if len(matches) == 1 else f"{len(matches)} interactions"
     if not yes:
-        click.confirm(f"\nDelete {label}?", abort=True)
+        click.confirm(f"\nDelete interaction?", abort=True)
 
-    for i in matches:
-        delete_interaction(i.id)
-    click.echo(f"Deleted {label} for '{person_name}' on {date_str}.")
+    delete_interaction(interaction.id)
+    click.echo(f"Deleted interaction for '{person_name}' ({date_str}).")
 
 
 @cli.command()
