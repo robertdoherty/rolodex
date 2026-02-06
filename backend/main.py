@@ -237,7 +237,9 @@ def ingest(file_path: str | None, person_name: str | None, date: str | None):
     from config import TRANSCRIPT_EXTENSIONS, RECORDING_EXTENSIONS
 
     if file_path is None:
-        file_path = click.prompt("File path")
+        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.completion import PathCompleter
+        file_path = pt_prompt("File path (tab to complete): ", completer=PathCompleter()).strip()
     if not os.path.exists(file_path):
         click.echo(f"Error: Path '{file_path}' does not exist.")
         return
