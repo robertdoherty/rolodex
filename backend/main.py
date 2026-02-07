@@ -7,7 +7,9 @@ import click
 import vfs
 from config import PersonType, Tag, TAG_DESCRIPTIONS
 from database import (
+    add_connection,
     complete_followup,
+    create_followups,
     create_person,
     delete_interaction,
     delete_person,
@@ -17,6 +19,7 @@ from database import (
     get_person,
     init_db,
     list_persons,
+    remove_connection,
 )
 from services.ingestion import ingest_recording, ingest_transcript
 
@@ -162,6 +165,68 @@ def person_show(name: str):
         click.echo(f"\nState of Play:\n{p.state_of_play}")
 
     click.echo()
+
+
+@person.command("connect")
+@click.argument("name_a", required=False)
+@click.argument("name_b", required=False)
+def person_connect(name_a: str | None, name_b: str | None):
+    """Add a connection between two people."""
+    from prompt_toolkit import prompt as pt_prompt
+    from prompt_toolkit.completion import FuzzyWordCompleter
+
+    persons = list_persons()
+    if len(persons) < 2:
+        click.echo("Need at least two people to create a connection.")
+        return
+
+    names = [p.name for p in persons]
+    completer = FuzzyWordCompleter(names)
+
+    if name_a is None:
+        name_a = pt_prompt("First person (tab to complete): ", completer=completer).strip()
+    if name_b is None:
+        name_b = pt_prompt("Second person (tab to complete): ", completer=completer).strip()
+
+    if name_a == name_b:
+        click.echo("Cannot connect a person to themselves.")
+        return
+
+    for n in (name_a, name_b):
+        if get_person(n) is None:
+            click.echo(f"Person '{n}' not found.")
+            return
+
+    add_connection(name_a, name_b)
+    click.echo(f"Connected: {name_a} <-> {name_b}")
+
+
+@person.command("disconnect")
+@click.argument("name_a", required=False)
+@click.argument("name_b", required=False)
+def person_disconnect(name_a: str | None, name_b: str | None):
+    """Remove a connection between two people."""
+    from prompt_toolkit import prompt as pt_prompt
+    from prompt_toolkit.completion import FuzzyWordCompleter
+
+    persons = list_persons()
+    names = [p.name for p in persons]
+    completer = FuzzyWordCompleter(names)
+
+    if name_a is None:
+        name_a = pt_prompt("First person (tab to complete): ", completer=completer).strip()
+    if name_b is None:
+        name_b = pt_prompt("Second person (tab to complete): ", completer=completer).strip()
+
+    for n in (name_a, name_b):
+        if get_person(n) is None:
+            click.echo(f"Person '{n}' not found.")
+            return
+
+    if remove_connection(name_a, name_b):
+        click.echo(f"Disconnected: {name_a} <-> {name_b}")
+    else:
+        click.echo(f"No connection found between '{name_a}' and '{name_b}'.")
 
 
 @person.command("list")
@@ -374,6 +439,96 @@ def search_person(name: str):
 def followup():
     """Manage follow-up action items."""
     pass
+
+
+@followup.command("add")
+@click.option("--person", "-p", "person_name", default=None, help="Person name")
+@click.option("--date", "-d", "date_slugs", multiple=True, help="Date slug(s) to extract from (repeatable)")
+@click.option("--all", "-a", "all_interactions", is_flag=True, help="Extract from all interactions")
+def followup_add(person_name: str | None, date_slugs: tuple[str, ...], all_interactions: bool):
+    """Extract follow-ups from existing interactions.
+
+    Pick a person, then select which interactions to analyze.
+    Uses AI to identify action items from the transcript(s).
+    """
+    from prompt_toolkit import prompt as pt_prompt
+    from prompt_toolkit.completion import FuzzyWordCompleter
+    from vfs import _build_date_slugs
+    from services.analysis import extract_followups
+
+    # Pick person
+    if person_name is None:
+        persons = list_persons()
+        if not persons:
+            click.echo("No people found.")
+            return
+        names = [p.name for p in persons]
+        completer = FuzzyWordCompleter(names)
+        person_name = pt_prompt("Person (tab to complete): ", completer=completer).strip()
+
+    p = get_person(person_name)
+    if p is None:
+        click.echo(f"Person '{person_name}' not found.")
+        return
+
+    interactions = get_interactions(person_name)
+    if not interactions:
+        click.echo(f"No interactions found for '{person_name}'.")
+        return
+
+    slug_map = _build_date_slugs(interactions)
+
+    # Select interactions
+    if all_interactions:
+        selected_slugs = list(slug_map.keys())
+    elif date_slugs:
+        selected_slugs = list(date_slugs)
+        for s in selected_slugs:
+            if s not in slug_map:
+                click.echo(f"No interaction found for '{person_name}' with slug '{s}'.")
+                return
+    else:
+        # Interactive: show interactions and let user pick
+        sorted_slugs = sorted(slug_map.keys())
+        click.echo(f"\nInteractions for {person_name}:\n")
+        for slug in sorted_slugs:
+            ix = slug_map[slug]
+            tags_str = ", ".join(t.value for t in ix.tags)
+            click.echo(f"  {slug}  Tags: {tags_str}")
+        click.echo()
+        completer = FuzzyWordCompleter(sorted_slugs)
+        selected_slugs = []
+        while True:
+            choice = pt_prompt("Date slug to analyze (empty to finish): ", completer=completer).strip()
+            if not choice:
+                break
+            if choice not in slug_map:
+                click.echo(f"  '{choice}' not found, try again.")
+                continue
+            if choice in selected_slugs:
+                click.echo(f"  '{choice}' already selected.")
+                continue
+            selected_slugs.append(choice)
+
+    if not selected_slugs:
+        click.echo("No interactions selected.")
+        return
+
+    # Extract followups from each selected interaction
+    total_added = 0
+    for slug in selected_slugs:
+        ix = slug_map[slug]
+        click.echo(f"\nExtracting follow-ups from {slug}...")
+        items = extract_followups(ix.transcript, person_name, person_name)
+        if items:
+            create_followups(person_name, ix.id, slug, items)
+            for item in items:
+                click.echo(f"  - {item}")
+            total_added += len(items)
+        else:
+            click.echo("  (no action items found)")
+
+    click.echo(f"\nAdded {total_added} follow-up(s) for {person_name}.")
 
 
 @followup.command("list")
