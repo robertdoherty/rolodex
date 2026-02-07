@@ -7,11 +7,13 @@ import click
 import vfs
 from config import PersonType, Tag, TAG_DESCRIPTIONS
 from database import (
+    complete_followup,
     create_person,
     delete_interaction,
     delete_person,
     get_interactions,
     get_interactions_by_tag,
+    get_open_followups,
     get_person,
     init_db,
     list_persons,
@@ -75,10 +77,35 @@ def person_create(name: str | None, company: str | None, person_type: str | None
     if not headcount:
         headcount = click.prompt("Headcount", default="", show_default=False)
 
+    # Connection prompting
+    connections = []
+    persons = list_persons()
+    existing_names = [p.name for p in persons]
+    if existing_names:
+        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.completion import FuzzyWordCompleter
+        completer = FuzzyWordCompleter(existing_names)
+        while True:
+            conn_name = pt_prompt("Connection (empty to finish): ", completer=completer).strip()
+            if not conn_name:
+                break
+            if conn_name == name:
+                click.echo("  Skipped: cannot connect a person to themselves")
+                continue
+            if conn_name not in existing_names:
+                click.echo(f"  Skipped: '{conn_name}' not found")
+                continue
+            if conn_name in connections:
+                click.echo(f"  Skipped: '{conn_name}' already added")
+                continue
+            connections.append(conn_name)
+
     ptype = PersonType(person_type) if person_type else None
-    p = create_person(name, company, ptype, background, linkedin, industry, revenue, headcount)
+    p = create_person(name, company, ptype, background, linkedin, industry, revenue, headcount, connections)
     type_str = p.type.value if p.type else "person"
     click.echo(f"Created {type_str}: {p.name} @ {p.current_company}")
+    if p.connections:
+        click.echo(f"  Connections: {', '.join(p.connections)}")
 
 
 @person.command("delete")
@@ -121,6 +148,8 @@ def person_show(name: str):
     if p.linkedin_url:
         click.echo(f"LinkedIn: {p.linkedin_url}")
     click.echo(f"Interactions: {len(p.interaction_ids)}")
+    if p.connections:
+        click.echo(f"Connections: {', '.join(p.connections)}")
     click.echo(f"{'='*60}")
 
     if p.background:
@@ -151,11 +180,12 @@ def person_list(person_type: str | None):
         click.echo("No people found.")
         return
 
-    click.echo(f"\n{'Name':<25} {'Company':<25} {'Type':<12} {'Interactions'}")
-    click.echo("-" * 75)
+    click.echo(f"\n{'Name':<25} {'Company':<25} {'Type':<12} {'Ixns':<6} {'Connections'}")
+    click.echo("-" * 90)
     for p in persons:
         type_str = p.type.value if p.type else "-"
-        click.echo(f"{p.name:<25} {p.current_company:<25} {type_str:<12} {len(p.interaction_ids)}")
+        conns_str = ", ".join(p.connections) if p.connections else "-"
+        click.echo(f"{p.name:<25} {p.current_company:<25} {type_str:<12} {len(p.interaction_ids):<6} {conns_str}")
     click.echo()
 
 
@@ -338,6 +368,95 @@ def search_person(name: str):
         for t in i.takeaways:
             click.echo(f"  - {t}")
         click.echo()
+
+
+@cli.group()
+def followup():
+    """Manage follow-up action items."""
+    pass
+
+
+@followup.command("list")
+@click.argument("name", required=False, default=None)
+def followup_list(name: str | None):
+    """List open follow-ups for a person."""
+    if name is None:
+        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.completion import FuzzyWordCompleter
+        persons = list_persons()
+        if not persons:
+            click.echo("No people found.")
+            return
+        names = [p.name for p in persons]
+        completer = FuzzyWordCompleter(names)
+        name = pt_prompt("Person (tab to complete): ", completer=completer).strip()
+
+    p = get_person(name)
+    if p is None:
+        click.echo(f"Person '{name}' not found.")
+        return
+
+    followups = get_open_followups(name)
+    if not followups:
+        click.echo(f"No open follow-ups for {name}.")
+        return
+
+    click.echo(f"\nOpen follow-ups for {name}:\n")
+    for f in followups:
+        click.echo(f"  [{f.id}] ({f.date_slug}) {f.item}")
+    click.echo()
+
+
+@followup.command("complete")
+@click.argument("followup_id", required=False, default=None, type=int)
+@click.option("--person", "-p", "person_name", default=None, help="Person name (interactive mode)")
+def followup_complete(followup_id: int | None, person_name: str | None):
+    """Mark a follow-up as complete.
+
+    Direct mode: followup complete 2
+    Interactive mode: followup complete --person "John Doe"
+    """
+    if followup_id is not None:
+        # Direct mode: complete by ID
+        f = complete_followup(followup_id)
+        if f is None:
+            click.echo(f"Followup #{followup_id} not found.")
+            return
+        click.echo(f'Completed: "{f.item}"')
+        return
+
+    # Interactive mode: pick person, show list, prompt for ID
+    if person_name is None:
+        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.completion import FuzzyWordCompleter
+        persons = list_persons()
+        if not persons:
+            click.echo("No people found.")
+            return
+        names = [p.name for p in persons]
+        completer = FuzzyWordCompleter(names)
+        person_name = pt_prompt("Person (tab to complete): ", completer=completer).strip()
+
+    p = get_person(person_name)
+    if p is None:
+        click.echo(f"Person '{person_name}' not found.")
+        return
+
+    followups = get_open_followups(person_name)
+    if not followups:
+        click.echo(f"No open follow-ups for {person_name}.")
+        return
+
+    click.echo(f"\nOpen follow-ups for {person_name}:\n")
+    for f in followups:
+        click.echo(f"  [{f.id}] ({f.date_slug}) {f.item}")
+
+    chosen_id = click.prompt("\nFollowup ID to complete", type=int)
+    f = complete_followup(chosen_id)
+    if f is None:
+        click.echo(f"Followup #{chosen_id} not found.")
+        return
+    click.echo(f'Completed: "{f.item}"')
 
 
 @cli.command()

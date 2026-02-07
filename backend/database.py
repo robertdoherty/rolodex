@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from config import DATABASE_PATH, DATA_DIR, PersonType, Tag
-from models import Interaction, Person
+from models import Followup, Interaction, Person
 
 
 def get_connection() -> sqlite3.Connection:
@@ -70,6 +70,45 @@ def init_db() -> None:
         ON persons(type)
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS connections (
+            person_a TEXT NOT NULL,
+            person_b TEXT NOT NULL,
+            PRIMARY KEY (person_a, person_b),
+            FOREIGN KEY (person_a) REFERENCES persons(name),
+            FOREIGN KEY (person_b) REFERENCES persons(name),
+            CHECK (person_a < person_b)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_connections_b
+        ON connections(person_b)
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS followups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_name TEXT NOT NULL,
+            interaction_id INTEGER NOT NULL,
+            date_slug TEXT NOT NULL,
+            item TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            FOREIGN KEY (person_name) REFERENCES persons(name),
+            FOREIGN KEY (interaction_id) REFERENCES interactions(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_followups_person
+        ON followups(person_name)
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_followups_person_status
+        ON followups(person_name, status)
+    """)
+
     conn.commit()
     conn.close()
 
@@ -83,6 +122,7 @@ def create_person(
     company_industry: str = "",
     company_revenue: str = "",
     company_headcount: str = "",
+    connections: list[str] = None,
 ) -> Person:
     """Create a new person in the database."""
     conn = get_connection()
@@ -96,6 +136,10 @@ def create_person(
         (name, current_company, person_type.value if person_type else "", background, linkedin_url, company_industry, company_revenue, company_headcount),
     )
 
+    for other in (connections or []):
+        a, b = sorted([name, other])
+        cursor.execute("INSERT OR IGNORE INTO connections (person_a, person_b) VALUES (?, ?)", (a, b))
+
     conn.commit()
     conn.close()
 
@@ -108,6 +152,7 @@ def create_person(
         company_industry=company_industry,
         company_revenue=company_revenue,
         company_headcount=company_headcount,
+        connections=sorted(connections or []),
     )
 
 
@@ -116,10 +161,55 @@ def delete_person(name: str) -> bool:
     conn = get_connection()
     cursor = conn.cursor()
 
+    cursor.execute("DELETE FROM followups WHERE person_name = ?", (name,))
+    cursor.execute("DELETE FROM connections WHERE person_a = ? OR person_b = ?", (name, name))
     cursor.execute("DELETE FROM interactions WHERE person_name = ?", (name,))
     cursor.execute("DELETE FROM persons WHERE name = ?", (name,))
     deleted = cursor.rowcount > 0
 
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def _fetch_connections(cursor: sqlite3.Cursor, name: str) -> list[str]:
+    """Fetch sorted list of connected person names (internal helper)."""
+    cursor.execute(
+        "SELECT person_a, person_b FROM connections WHERE person_a = ? OR person_b = ?",
+        (name, name),
+    )
+    return sorted(
+        r["person_b"] if r["person_a"] == name else r["person_a"]
+        for r in cursor.fetchall()
+    )
+
+
+def add_connection(name_a: str, name_b: str) -> None:
+    """Add a connection between two persons."""
+    a, b = sorted([name_a, name_b])
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO connections (person_a, person_b) VALUES (?, ?)", (a, b))
+    conn.commit()
+    conn.close()
+
+
+def get_connections(name: str) -> list[str]:
+    """Get sorted list of connected person names."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    result = _fetch_connections(cursor, name)
+    conn.close()
+    return result
+
+
+def remove_connection(name_a: str, name_b: str) -> bool:
+    """Remove a connection between two persons. Returns True if a row was deleted."""
+    a, b = sorted([name_a, name_b])
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM connections WHERE person_a = ? AND person_b = ?", (a, b))
+    deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()
     return deleted
@@ -143,9 +233,11 @@ def get_person(name: str) -> Optional[Person]:
     )
     interaction_ids = [r["id"] for r in cursor.fetchall()]
 
+    connections = _fetch_connections(cursor, name)
+
     conn.close()
 
-    return Person.from_dict(dict(row), interaction_ids)
+    return Person.from_dict(dict(row), interaction_ids, connections)
 
 
 def list_persons(type_filter: Optional[PersonType] = None) -> list[Person]:
@@ -165,7 +257,8 @@ def list_persons(type_filter: Optional[PersonType] = None) -> list[Person]:
             (row["name"],),
         )
         interaction_ids = [r["id"] for r in cursor.fetchall()]
-        persons.append(Person.from_dict(dict(row), interaction_ids))
+        connections = _fetch_connections(cursor, row["name"])
+        persons.append(Person.from_dict(dict(row), interaction_ids, connections))
 
     conn.close()
     return persons
@@ -212,6 +305,7 @@ def delete_interaction(interaction_id: int) -> bool:
     conn = get_connection()
     cursor = conn.cursor()
 
+    cursor.execute("DELETE FROM followups WHERE interaction_id = ?", (interaction_id,))
     cursor.execute("DELETE FROM interactions WHERE id = ?", (interaction_id,))
     deleted = cursor.rowcount > 0
 
@@ -360,3 +454,95 @@ def get_interactions_by_tag(tag: Tag) -> list[Interaction]:
 
     conn.close()
     return interactions
+
+
+def create_followups(
+    person_name: str,
+    interaction_id: int,
+    date_slug: str,
+    items: list[str],
+) -> list[Followup]:
+    """Bulk-create followup items for an interaction."""
+    if not items:
+        return []
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    followups = []
+    for item in items:
+        cursor.execute(
+            """
+            INSERT INTO followups (person_name, interaction_id, date_slug, item, status)
+            VALUES (?, ?, ?, ?, 'open')
+            """,
+            (person_name, interaction_id, date_slug, item),
+        )
+        followups.append(Followup(
+            id=cursor.lastrowid,
+            person_name=person_name,
+            interaction_id=interaction_id,
+            date_slug=date_slug,
+            item=item,
+            status="open",
+        ))
+
+    conn.commit()
+    conn.close()
+    return followups
+
+
+def get_open_followups(person_name: str) -> list[Followup]:
+    """Get open followup items for a person, ordered by id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM followups WHERE person_name = ? AND status = 'open' ORDER BY id",
+        (person_name,),
+    )
+
+    followups = []
+    for row in cursor.fetchall():
+        followups.append(Followup(
+            id=row["id"],
+            person_name=row["person_name"],
+            interaction_id=row["interaction_id"],
+            date_slug=row["date_slug"],
+            item=row["item"],
+            status=row["status"],
+        ))
+
+    conn.close()
+    return followups
+
+
+def complete_followup(followup_id: int) -> Optional[Followup]:
+    """Mark a followup as complete. Returns the Followup or None if not found."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM followups WHERE id = ?", (followup_id,))
+    row = cursor.fetchone()
+
+    if row is None:
+        conn.close()
+        return None
+
+    cursor.execute(
+        "UPDATE followups SET status = 'complete' WHERE id = ?",
+        (followup_id,),
+    )
+    conn.commit()
+
+    followup = Followup(
+        id=row["id"],
+        person_name=row["person_name"],
+        interaction_id=row["interaction_id"],
+        date_slug=row["date_slug"],
+        item=row["item"],
+        status="complete",
+    )
+
+    conn.close()
+    return followup

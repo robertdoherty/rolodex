@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from database import get_interactions, get_person, list_persons
+from database import get_interactions, get_open_followups, get_person, list_persons
 from models import Interaction, Person
 
 
@@ -86,6 +86,13 @@ def _format_tags(interaction: Interaction) -> str:
     return "\n".join(t.value for t in interaction.tags)
 
 
+def _format_connections(person: Person) -> str:
+    """Format connections for display."""
+    if not person.connections:
+        return "(no connections)"
+    return "\n".join(person.connections)
+
+
 def _format_info(person: Person) -> str:
     """Format person info file."""
     lines = [
@@ -93,11 +100,22 @@ def _format_info(person: Person) -> str:
         f"Company:      {person.current_company}",
         f"Type:         {person.type.value}",
         f"Interactions: {len(person.interaction_ids)}",
+        f"Connections:  {len(person.connections)}",
     ]
     return "\n".join(lines)
 
 
-PERSON_FILES = ["info", "background", "state", "delta"]
+def _format_followups(person_name: str) -> str:
+    """Format open followups for display."""
+    followups = get_open_followups(person_name)
+    if not followups:
+        return "(no open followups)"
+    return "\n".join(
+        f"[{f.id}] ({f.date_slug}) {f.item}" for f in followups
+    )
+
+
+PERSON_FILES = ["info", "background", "state", "delta", "connections", "followups"]
 INTERACTION_FILES = ["transcript", "takeaways", "tags"]
 
 
@@ -146,6 +164,8 @@ def resolve(path: str) -> Optional[VFSNode]:
             "background": lambda: person.background or "(no background)",
             "state": lambda: person.state_of_play or "(no state of play)",
             "delta": lambda: person.last_delta or "(no delta)",
+            "connections": lambda: _format_connections(person),
+            "followups": lambda: _format_followups(person_name),
         }
         return VFSNode(
             node_type=NodeType.PERSON_FILE,

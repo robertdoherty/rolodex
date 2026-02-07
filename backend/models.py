@@ -21,6 +21,7 @@ class Person:
     state_of_play: str = ""                # AI-updated current truth (~200 words)
     last_delta: str = ""                   # What changed in most recent meeting
     interaction_ids: list[int] = field(default_factory=list)  # IDs of linked interactions
+    connections: list[str] = field(default_factory=list)      # Names of connected persons
 
     def to_dict(self) -> dict:
         """Convert to dictionary for storage."""
@@ -38,7 +39,7 @@ class Person:
         }
 
     @classmethod
-    def from_dict(cls, data: dict, interaction_ids: list[int] = None) -> "Person":
+    def from_dict(cls, data: dict, interaction_ids: list[int] = None, connections: list[str] = None) -> "Person":
         """Create from dictionary."""
         return cls(
             name=data["name"],
@@ -52,6 +53,7 @@ class Person:
             state_of_play=data.get("state_of_play", ""),
             last_delta=data.get("last_delta", ""),
             interaction_ids=interaction_ids or [],
+            connections=connections or [],
         )
 
 
@@ -101,3 +103,37 @@ class RollingUpdate:
     """Result of generating a rolling update for a person."""
     delta: str           # What changed (1-2 sentences)
     updated_state: str   # New state_of_play (~200 words)
+
+
+@dataclass
+class Followup:
+    """An action item extracted from an interaction."""
+    id: Optional[int]
+    person_name: str
+    interaction_id: int
+    date_slug: str           # "2026-01-05" or "2026-01-05_2"
+    item: str
+    status: str = "open"     # "open" or "complete"
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for storage."""
+        return {
+            "id": self.id,
+            "person_name": self.person_name,
+            "interaction_id": self.interaction_id,
+            "date_slug": self.date_slug,
+            "item": self.item,
+            "status": self.status,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Followup":
+        """Create from dictionary."""
+        return cls(
+            id=data.get("id"),
+            person_name=data["person_name"],
+            interaction_id=data["interaction_id"],
+            date_slug=data["date_slug"],
+            item=data["item"],
+            status=data.get("status", "open"),
+        )

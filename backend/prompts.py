@@ -115,3 +115,30 @@ Company: {current_company}
 {takeaways}
 
 Write a concise 1-2 sentence bio. No filler — just who they are and what matters to them."""
+
+FOLLOWUP_EXTRACTION_PROMPT = """You are extracting action items and next steps from a conversation transcript.
+
+## Subject
+{subject_name} (Speaker {subject_speaker})
+
+## Transcript
+{transcript}
+
+## Instructions
+1. Identify concrete action items and next steps that emerged from this conversation
+2. Include commitments made by EITHER party (both the subject and the interviewer)
+3. Each item must be very short and concise — no more than 7-8 words
+4. Use imperative form (verb-first), e.g. "Send pricing proposal to John"
+5. Only include clear, actionable commitments — not vague intentions
+6. Return an empty list if no clear action items were found
+
+Examples of good items:
+- "Send pricing proposal by Friday"
+- "Schedule demo with engineering team"
+- "Share competitor analysis deck"
+- "Intro to VP of Sales"
+
+Examples of bad items (too vague or too long):
+- "Think about possibly exploring options for partnership"
+- "Send over the detailed pricing proposal document that includes all tier options and volume discounts by end of next week"
+"""

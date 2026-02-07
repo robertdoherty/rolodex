@@ -7,19 +7,24 @@ from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.completion import FuzzyWordCompleter
 from prompt_toolkit.history import FileHistory
 
 import vfs
 from config import PersonType, Tag, TAG_DESCRIPTIONS
 from database import (
+    complete_followup,
     create_person,
     get_interactions_by_tag,
+    get_open_followups,
+    get_person,
     init_db,
+    list_persons,
 )
 from services.ingestion import ingest_recording
 
 
-COMMANDS = ["ls", "cd", "cat", "tree", "pwd", "clear", "ingest", "mkperson", "search", "tags", "help", "exit"]
+COMMANDS = ["ls", "cd", "cat", "tree", "pwd", "clear", "ingest", "mkperson", "search", "tags", "followups", "complete", "help", "exit"]
 
 
 class RolodexCompleter(Completer):
@@ -227,6 +232,7 @@ class RolodexShell:
         company_industry = ""
         company_revenue = ""
         company_headcount = ""
+        connections = []
 
         # Parse provided arguments
         if args:
@@ -254,6 +260,9 @@ class RolodexShell:
                 elif args[i] in ("--headcount", "-h") and i + 1 < len(args):
                     company_headcount = args[i + 1]
                     i += 2
+                elif args[i] in ("--connection", "--conn") and i + 1 < len(args):
+                    connections.append(args[i + 1])
+                    i += 2
                 else:
                     print(f"Unknown option: {args[i]}")
                     return
@@ -277,10 +286,117 @@ class RolodexShell:
             print(f"Error: type must be one of {valid_types}")
             return
 
+        # Interactive connection loop
+        persons = list_persons()
+        existing_names = [p.name for p in persons]
+        if existing_names:
+            completer = FuzzyWordCompleter(existing_names)
+            while True:
+                conn_name = self.session.prompt(
+                    "Connection (empty to finish): ",
+                    completer=completer,
+                ).strip()
+                if not conn_name:
+                    break
+                if conn_name == name:
+                    print("  Skipped: cannot connect a person to themselves")
+                    continue
+                if conn_name not in existing_names:
+                    print(f"  Skipped: '{conn_name}' not found")
+                    continue
+                if conn_name in connections:
+                    print(f"  Skipped: '{conn_name}' already added")
+                    continue
+                connections.append(conn_name)
+
         ptype = PersonType(person_type) if person_type else None
-        p = create_person(name, company, ptype, background, linkedin_url, company_industry, company_revenue, company_headcount)
+        p = create_person(name, company, ptype, background, linkedin_url, company_industry, company_revenue, company_headcount, connections)
         type_str = p.type.value if p.type else "person"
         print(f"Created {type_str}: {p.name} @ {p.current_company}")
+        if p.connections:
+            print(f"  Connections: {', '.join(p.connections)}")
+
+    def cmd_followups(self, args: list[str]) -> None:
+        """List open follow-ups for a person."""
+        person_name = args[0] if args else None
+
+        # Infer person from cwd if inside a person directory
+        if person_name is None:
+            parts = [p for p in self.cwd.split("/") if p]
+            if parts:
+                person_name = vfs._slug_to_name(parts[0])
+
+        if person_name is None:
+            print("Usage: followups [person]")
+            return
+
+        p = get_person(person_name)
+        if p is None:
+            print(f"Person '{person_name}' not found.")
+            return
+
+        followups = get_open_followups(person_name)
+        if not followups:
+            print(f"No open follow-ups for {person_name}.")
+            return
+
+        print(f"\nOpen follow-ups for {person_name}:\n")
+        for f in followups:
+            print(f"  [{f.id}] ({f.date_slug}) {f.item}")
+        print()
+
+    def cmd_complete(self, args: list[str]) -> None:
+        """Mark a follow-up as complete."""
+        if args:
+            # Direct mode: complete <id>
+            try:
+                followup_id = int(args[0])
+            except ValueError:
+                print("Usage: complete <followup_id>")
+                return
+            f = complete_followup(followup_id)
+            if f is None:
+                print(f"Followup #{followup_id} not found.")
+                return
+            print(f'Completed: "{f.item}"')
+            return
+
+        # Interactive mode: infer person from cwd, show list, prompt
+        person_name = None
+        parts = [p for p in self.cwd.split("/") if p]
+        if parts:
+            person_name = vfs._slug_to_name(parts[0])
+
+        if person_name is None:
+            print("Usage: complete <followup_id>  (or cd into a person directory first)")
+            return
+
+        p = get_person(person_name)
+        if p is None:
+            print(f"Person '{person_name}' not found.")
+            return
+
+        followups = get_open_followups(person_name)
+        if not followups:
+            print(f"No open follow-ups for {person_name}.")
+            return
+
+        print(f"\nOpen follow-ups for {person_name}:\n")
+        for f in followups:
+            print(f"  [{f.id}] ({f.date_slug}) {f.item}")
+
+        chosen = self.session.prompt("\nFollowup ID to complete: ").strip()
+        try:
+            followup_id = int(chosen)
+        except ValueError:
+            print("Invalid ID.")
+            return
+
+        f = complete_followup(followup_id)
+        if f is None:
+            print(f"Followup #{followup_id} not found.")
+            return
+        print(f'Completed: "{f.item}"')
 
     def cmd_search(self, args: list[str]) -> None:
         if len(args) < 2:
@@ -329,6 +445,8 @@ Commands:
   mkperson [name] [options]            Create a person (prompts for missing fields)
   search tag <tag>                     Search interactions by tag
   tags                                 List available tags
+  followups [person]                   List open follow-ups (infers person from cwd)
+  complete [id]                        Mark a follow-up complete (interactive if no id)
   help                                 Show this help
   exit                                 Exit the shell
 
@@ -338,6 +456,7 @@ mkperson options:
   --background, -b <bio>               Optional background info
   --linkedin, -l <url>                 LinkedIn profile URL
   --industry, -i <industry>            Company industry
+  --connection, --conn <name>          Connect to existing person (repeatable)
 """)
 
     def cmd_exit(self, args: list[str]) -> None:

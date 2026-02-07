@@ -4,7 +4,9 @@ from datetime import datetime
 from pathlib import Path
 
 from database import (
+    create_followups,
     create_interaction,
+    get_interactions_by_date,
     get_person,
     update_person_background,
     update_person_state,
@@ -13,6 +15,7 @@ from models import Interaction
 from services.analysis import (
     analyze_interaction,
     diarize_transcript,
+    extract_followups,
     generate_background,
     generate_rolling_update,
     identify_subject_speaker,
@@ -38,8 +41,8 @@ def _run_shared_pipeline(
     date: datetime,
     step_offset: int = 2,
 ) -> Interaction:
-    """Shared pipeline steps: relabel speakers, analyze, update, store."""
-    total = step_offset + 4
+    """Shared pipeline steps: relabel speakers, analyze, update, store, followups."""
+    total = step_offset + 5
 
     # Relabel speakers: subject gets person_name, others get "Interviewer N"
     interviewer_count = 0
@@ -79,6 +82,24 @@ def _run_shared_pipeline(
         takeaways=takeaways,
         tags=tags,
     )
+
+    n += 1
+    print(f"[{n}/{total}] Extracting follow-ups...")
+    followup_items = extract_followups(transcript, person_name, person_name)
+    if followup_items:
+        # Compute date_slug matching VFS convention
+        date_str = date.strftime("%Y-%m-%d")
+        same_date = get_interactions_by_date(person_name, date_str)
+        if len(same_date) <= 1:
+            date_slug = date_str
+        else:
+            idx = next(i for i, ix in enumerate(same_date, 1) if ix.id == interaction.id)
+            date_slug = f"{date_str}_{idx}"
+        create_followups(person_name, interaction.id, date_slug, followup_items)
+        for item in followup_items:
+            print(f"    - {item}")
+    else:
+        print("    (no action items found)")
 
     n += 1
     print(f"[{n}/{total}] Updating person state...")
@@ -129,10 +150,10 @@ def ingest_recording(
     if date is None:
         date = datetime.now()
 
-    print(f"[1/6] Extracting audio and transcribing...")
+    print(f"[1/7] Extracting audio and transcribing...")
     transcript = transcribe_video(video_path)
 
-    print(f"[2/6] Identifying subject speaker...")
+    print(f"[2/7] Identifying subject speaker...")
     subject_speaker = identify_subject_speaker(transcript, person_name, context)
 
     return _run_shared_pipeline(transcript, subject_speaker, person_name, person, date)
@@ -164,13 +185,13 @@ def ingest_transcript(
     if date is None:
         date = datetime.now()
 
-    print(f"[1/6] Reading transcript file...")
+    print(f"[1/7] Reading transcript file...")
     raw_text = file_path.read_text(encoding="utf-8")
 
     if not raw_text.strip():
         raise ValueError(f"Transcript file is empty: {file_path}")
 
-    print(f"[2/6] Diarizing transcript and identifying subject speaker...")
+    print(f"[2/7] Diarizing transcript and identifying subject speaker...")
     transcript, subject_speaker = diarize_transcript(raw_text, person_name, context)
 
     return _run_shared_pipeline(transcript, subject_speaker, person_name, person, date)

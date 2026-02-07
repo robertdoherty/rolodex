@@ -11,6 +11,7 @@ from config import (
     ANALYSIS_MAX_TOKENS,
     BACKGROUND_MAX_TOKENS,
     DIARIZATION_MAX_TOKENS,
+    FOLLOWUP_MAX_TOKENS,
     MODEL_NAME,
     MODEL_TEMPERATURE,
     ROLLING_UPDATE_MAX_TOKENS,
@@ -23,6 +24,7 @@ from prompts import (
     BACKGROUND_GENERATION_PROMPT,
     COMPETITOR_ANALYSIS_PROMPT,
     CUSTOMER_ANALYSIS_PROMPT,
+    FOLLOWUP_EXTRACTION_PROMPT,
     INVESTOR_ANALYSIS_PROMPT,
     ROLLING_UPDATE_PROMPT,
     SPEAKER_IDENTIFICATION_PROMPT,
@@ -316,3 +318,42 @@ def generate_background(
     })
 
     return result.background
+
+
+class FollowupExtractionSchema(BaseModel):
+    """Schema for followup extraction output."""
+    items: list[str] = Field(description="Action items / next steps. Empty if none.")
+
+
+def extract_followups(
+    transcript: dict,
+    subject_name: str,
+    subject_speaker: str,
+) -> list[str]:
+    """Extract action items / next steps from a transcript.
+
+    Args:
+        transcript: Dictionary with transcript data
+        subject_name: Name of the person being interviewed
+        subject_speaker: Speaker label of the subject
+
+    Returns:
+        List of short action-item strings (may be empty)
+    """
+    llm = _get_llm(FOLLOWUP_MAX_TOKENS)
+    structured_llm = llm.with_structured_output(FollowupExtractionSchema)
+
+    formatted_transcript = _format_transcript(transcript)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("human", FOLLOWUP_EXTRACTION_PROMPT),
+    ])
+
+    chain = prompt | structured_llm
+    result = chain.invoke({
+        "transcript": formatted_transcript,
+        "subject_name": subject_name,
+        "subject_speaker": subject_speaker,
+    })
+
+    return result.items
