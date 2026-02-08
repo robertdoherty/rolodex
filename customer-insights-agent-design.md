@@ -147,6 +147,7 @@ The agent applies different analytical frames based on the question. Auto-select
 - **Seeks:** Who else they evaluated, why they chose/left, perceived gaps
 - **Questions:** "What are customers saying about competitor X?", "Why do people switch?"
 - **Output style:** Threat matrix, positioning gaps, competitive quotes
+- **Does NOT:** Search the web or speculate beyond what's in the Rolodex
 
 ### Market Strategist
 - **Focus:** Industry trends, timing signals, segment patterns
@@ -180,79 +181,83 @@ Examples:
 - "What's different about investor vs customer concerns?" → search both types, compare takeaways
 
 ### Analysis (Full Report)
-**Triggers:** "analyze", "report", "deep dive", "map out", "do an analysis"
-**Tools:** Multiple CLI searches + aggregation, reads `references/output-formats.md` for template
-**Output:** Structured format with visualization, headers, comprehensive coverage
+Triggers: "analyze", "report", "deep dive", "map out", "research"
+
+Workflow:
+1. Plan 2-4 searches that cover the question from different angles
+2. Run searches, collect results as JSON
+3. For the strongest signals, read full transcripts via VFS for direct quotes
+4. Read references/output-formats.md to select appropriate format
+5. Synthesize into structured report with:
+   - Key findings (ranked by frequency/strength of signal)
+   - Supporting evidence (quotes attributed to specific people + dates)
+   - Gaps: what the data doesn't cover, who you haven't asked about this
 
 Examples:
 - "Do an analysis on competitive landscape in payments"
 - "Create a report on onboarding pain points"
 - "Map out the customer journey for enterprise buyers"
 
+## Data Coverage
+Always state the evidence base: "Based on N interactions with M people..."
+If fewer than 3 data points support a finding, flag it as thin evidence.
+If an entire segment is missing (e.g., no healthcare customers), say so.
 ---
 
 ## Output Formats
 
-For full analysis requests, the agent selects the most appropriate format:
+Three formats. Pick the one that fits the question.
 
-| Format | Use Case | Triggered By |
-|--------|----------|--------------|
-| **2x2 Matrix** | Segment comparison on two dimensions | "compare X vs Y on A and B" |
-| **Empathy Map** | Deep persona understanding (Think/Feel/Do/Say) | "what does customer X experience" |
-| **Customer Journey** | Process/flow pain points | "journey", "onboarding", "process" |
-| **Service Blueprint** | End-to-end experience mapping | "map the experience", "touchpoints" |
-| **Frequency Table** | Topic prevalence, rankings | "top N", "how often", "most common" |
-| **Quote Wall** | Evidence gathering, proof points | "show me quotes", "what did they say" |
-| **Trend Line** | Change over time | "over time", "trending", "changing" |
-| **Five Whys** | Root cause analysis | "why do they...", "root cause" |
-| **Opportunity Scorecard** | Prioritization matrix | "prioritize", "rank opportunities" |
+### 1. Evidence Wall
 
-### Format Examples
+The workhorse. Most questions boil down to "what are people saying about X?" — this answers that directly. Forces the agent to go into transcripts, pull real quotes, and attribute them.
 
-**2x2 Matrix:**
+**Use for:** "What are customers saying about X?", "Show me feedback on Y", "What pain points came up?"
+
 ```
-                    High Urgency
-                         │
-    Quick Wins           │         Critical
-    - Feature A          │         - Feature C
-    - Feature B          │         - Feature D
-                         │
-    ─────────────────────┼─────────────────────
-                         │
-    Low Priority         │         Strategic
-    - Feature E          │         - Feature F
-                         │
-                    Low Urgency
+## Pricing Concerns (7 mentions across 5 people)
 
-         Low Effort ◄────┴────► High Effort
+**"We can't justify the cost without seeing ROI in 90 days"**
+— Sarah Chen (Acme Corp, Enterprise), Jan 15 2026
+
+**"Competitors are offering bundled pricing that makes comparison impossible"**
+— John Doe (Ford, Enterprise), Jan 5 2026
+
+**"For our size, per-seat doesn't make sense"**
+— Maria Lopez (TechStart, SMB), Dec 12 2025
 ```
 
-**Empathy Map:**
+### 2. Frequency Table
+
+When you need to see patterns and prioritize — what's coming up most, what's loudest. The "People" column is critical because 14 mentions from 2 people is very different from 14 mentions across 8 people.
+
+**Use for:** "What are the top pain points?", "Rank the most common themes", "How often did X come up?"
+
 ```
-┌─────────────────────────────────────────────┐
-│                   THINKS                     │
-│  "Is this really better than what I have?"  │
-│  "Will my team actually adopt this?"        │
-├──────────────────────┬──────────────────────┤
-│        FEELS         │        SAYS          │
-│  Overwhelmed by      │  "We need better     │
-│  vendor options      │  reporting"          │
-│  Skeptical of ROI    │  "Price is a factor" │
-├──────────────────────┴──────────────────────┤
-│                    DOES                      │
-│  Evaluates 3-5 vendors, asks for references │
-│  Runs pilot with small team first           │
-└─────────────────────────────────────────────┘
+Theme                       │ People │ Mentions │ Strength
+────────────────────────────┼────────┼──────────┼──────────
+Slow onboarding             │  8/12  │    14    │ ████████░░
+Pricing confusion           │  5/12  │     9    │ ██████░░░░
+Missing integrations        │  4/12  │     7    │ █████░░░░░
+Poor mobile experience      │  2/12  │     4    │ ███░░░░░░░
 ```
 
-**Frequency Table:**
+### 3. Segment Comparison
+
+When comparing two groups — customer types, company sizes, industries, time periods. Forces a structured contrast with evidence from both sides.
+
+**Use for:** "How do X vs Y think about Z?", "What's different between segments?", "Has sentiment changed over time?"
+
 ```
-Pain Point                  │ Mentions │ Severity
-────────────────────────────┼──────────┼──────────
-Slow onboarding             │    12    │ ████████░░
-Pricing confusion           │     9    │ ██████░░░░
-Missing integrations        │     7    │ █████░░░░░
-Poor mobile experience      │     4    │ ███░░░░░░░
+                    │ Enterprise              │ SMB
+────────────────────┼─────────────────────────┼───────────────────────
+Absolute cost       │ Secondary concern       │ Primary blocker
+Willingness to pay  │ High if proven          │ Low, price-sensitive
+Comparison behavior │ Formal RFP, 3-5 vendors │ Quick Google search
+Key quote           │ "Show me the business   │ "We just need it to
+                    │  case" — Sarah Chen,    │  work" — Maria Lopez,
+                    │  Acme                   │  TechStart
+Data coverage       │ 8 interactions          │ 4 interactions
 ```
 
 ---

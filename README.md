@@ -18,7 +18,7 @@ rolodex/
 │   ├── shell.py                # Interactive REPL shell
 │   ├── config.py               # Configuration and enums
 │   ├── models.py               # Data classes (Person, Interaction, Followup, InteractionAnalysis, RollingUpdate)
-│   ├── database.py             # SQLite storage layer
+│   ├── database.py             # SQLite storage layer (includes FTS5 full-text search)
 │   ├── prompts.py              # LLM prompt templates
 │   ├── local_secrets.py        # API keys (gitignored)
 │   ├── services/
@@ -27,6 +27,10 @@ rolodex/
 │   │   └── analysis.py         # LLM-based analysis (speaker ID, interaction, rolling update)
 │   └── data/
 │       └── rolodex.db          # SQLite database
+├── .claude/skills/
+│   └── customer-insights/      # Claude Code agent skill
+│       ├── SKILL.md            # Agent instructions (persona lenses, response calibration)
+│       └── references/         # Search dimensions, output formats, enums
 └── README.md
 ```
 
@@ -375,9 +379,57 @@ python main.py search tag competitors
 # Show all interactions with a person
 python main.py search person "Jane Doe"
 
+# Multi-filter interaction search
+python main.py search interactions --tag pricing --type customer
+python main.py search interactions --text "onboarding" --industry fintech --from 2025-01-01
+python main.py search interactions --company "Acme" --format json
+
+# Search people
+python main.py search people --type investor
+python main.py search people --text "concerned about pricing"
+
+# Full-text search across transcripts and takeaways (supports prefix matching)
+python main.py search text "technician"
+python main.py search text "frustrat"    # matches frustration, frustrated, etc.
+
 # List available tags
 python main.py tags
 ```
+
+### Aggregation
+
+```bash
+# Tag frequency distribution
+python main.py aggregate tags
+python main.py aggregate tags --type customer
+
+# Segment breakdown
+python main.py aggregate segments --by type
+python main.py aggregate segments --by industry
+python main.py aggregate segments --by company
+```
+
+### Customer Insights Agent
+
+A Claude Code skill that answers freeform questions across all people and interactions. Auto-invoked when you ask analytical questions, or manually via `/customer-insights`.
+
+```
+You:   What are customers saying about pricing?
+Agent: [searches interactions, pulls quotes, synthesizes]
+
+You:   Which of those are from construction?
+Agent: [refines search with industry filter]
+
+You:   Do a full analysis on technician pain points
+Agent: [runs multiple searches, reads transcripts, produces structured report]
+```
+
+The agent uses three output formats depending on question complexity:
+- **Evidence Wall** — attributed quotes for "what are people saying about X?"
+- **Frequency Table** — ranked themes with people count and mention count
+- **Segment Comparison** — structured contrast between two groups
+
+Skill files live in `.claude/skills/customer-insights/`.
 
 ## Key Modules
 
@@ -388,7 +440,7 @@ python main.py tags
 | `backend/shell.py` | Interactive REPL with prompt_toolkit (tab completion, history) |
 | `backend/config.py` | Constants, enums (PersonType, Tag), model token limits |
 | `backend/models.py` | Dataclass definitions (Person, Interaction, Followup, InteractionAnalysis, RollingUpdate) |
-| `backend/database.py` | SQLite CRUD operations |
+| `backend/database.py` | SQLite CRUD operations, FTS5 full-text search, multi-filter search and aggregation |
 | `backend/prompts.py` | LLM prompt templates |
 | `backend/services/transcription.py` | Audio extraction (ffmpeg), speaker diarization (AssemblyAI) |
 | `backend/services/analysis.py` | LLM-powered analysis: speaker ID, transcript diarization, interaction analysis, rolling updates, followup extraction |

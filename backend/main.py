@@ -8,6 +8,8 @@ import vfs
 from config import PersonType, Tag, TAG_DESCRIPTIONS
 from database import (
     add_connection,
+    aggregate_segments,
+    aggregate_tags,
     complete_followup,
     create_followups,
     create_person,
@@ -20,6 +22,9 @@ from database import (
     init_db,
     list_persons,
     remove_connection,
+    search_interactions,
+    search_persons,
+    search_text,
 )
 from services.ingestion import ingest_recording, ingest_transcript
 
@@ -389,7 +394,7 @@ def ingest(file_path: str | None, person_name: str | None, date: str | None):
 
 @cli.group()
 def search():
-    """Search interactions."""
+    """Search interactions, people, and text."""
     pass
 
 
@@ -432,6 +437,195 @@ def search_person(name: str):
         click.echo(f"[{i.date.strftime('%Y-%m-%d')}] Tags: {tags_str}")
         for t in i.takeaways:
             click.echo(f"  - {t}")
+        click.echo()
+
+
+@search.command("interactions")
+@click.option("--tag", "tag_name", type=click.Choice(["pricing", "product", "gtm", "competitors", "market"]), help="Filter by tag")
+@click.option("--type", "-t", "person_type", type=click.Choice(["customer", "investor", "competitor"]), help="Filter by person type")
+@click.option("--company", help="Filter by company name (substring)")
+@click.option("--industry", help="Filter by industry (substring)")
+@click.option("--person", "person_name", help="Filter by person name")
+@click.option("--text", help="Full-text search across takeaways and transcripts")
+@click.option("--from", "date_from", help="Start date (YYYY-MM-DD)")
+@click.option("--to", "date_to", help="End date (YYYY-MM-DD)")
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def search_interactions_cmd(tag_name, person_type, company, industry, person_name, text, date_from, date_to, fmt):
+    """Search interactions with multiple filters."""
+    import json as json_mod
+
+    tag = Tag(tag_name) if tag_name else None
+    ptype = PersonType(person_type) if person_type else None
+
+    results = search_interactions(
+        tag=tag, person_type=ptype, company=company, industry=industry,
+        person_name=person_name, text=text, date_from=date_from, date_to=date_to,
+    )
+
+    if not results:
+        click.echo("No interactions found.")
+        return
+
+    if fmt == "json":
+        out = []
+        for i in results:
+            out.append({
+                "id": i.id,
+                "person_name": i.person_name,
+                "date": i.date.strftime("%Y-%m-%d"),
+                "tags": [t.value for t in i.tags],
+                "takeaways": i.takeaways,
+            })
+        click.echo(json_mod.dumps(out, indent=2))
+    else:
+        click.echo(f"\n{len(results)} interaction(s) found:\n")
+        for i in results:
+            tags_str = ", ".join(t.value for t in i.tags)
+            click.echo(f"[{i.date.strftime('%Y-%m-%d')}] {i.person_name} — {tags_str}")
+            for t in i.takeaways:
+                click.echo(f"  - {t}")
+            click.echo()
+
+
+@search.command("people")
+@click.option("--type", "-t", "person_type", type=click.Choice(["customer", "investor", "competitor"]), help="Filter by person type")
+@click.option("--company", help="Filter by company name (substring)")
+@click.option("--industry", help="Filter by industry (substring)")
+@click.option("--text", help="Full-text search across state of play and background")
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def search_people_cmd(person_type, company, industry, text, fmt):
+    """Search people with filters."""
+    import json as json_mod
+
+    ptype = PersonType(person_type) if person_type else None
+
+    results = search_persons(person_type=ptype, company=company, industry=industry, text=text)
+
+    if not results:
+        click.echo("No people found.")
+        return
+
+    if fmt == "json":
+        out = []
+        for p in results:
+            out.append({
+                "name": p.name,
+                "company": p.current_company,
+                "type": p.type.value if p.type else "",
+                "industry": p.company_industry,
+                "revenue": p.company_revenue,
+                "headcount": p.company_headcount,
+                "interactions": len(p.interaction_ids),
+                "state_of_play": p.state_of_play,
+            })
+        click.echo(json_mod.dumps(out, indent=2))
+    else:
+        click.echo(f"\n{len(results)} person(s) found:\n")
+        click.echo(f"{'Name':<25} {'Company':<25} {'Type':<12} {'Industry':<20} {'Ixns'}")
+        click.echo("-" * 90)
+        for p in results:
+            type_str = p.type.value if p.type else "-"
+            ind_str = p.company_industry or "-"
+            click.echo(f"{p.name:<25} {p.current_company:<25} {type_str:<12} {ind_str:<20} {len(p.interaction_ids)}")
+        click.echo()
+
+
+@search.command("text")
+@click.argument("query")
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def search_text_cmd(query, fmt):
+    """Full-text search across all transcripts and takeaways."""
+    import json as json_mod
+
+    results = search_text(query)
+
+    if not results:
+        click.echo(f"No results for '{query}'.")
+        return
+
+    if fmt == "json":
+        click.echo(json_mod.dumps(results, indent=2))
+    else:
+        click.echo(f"\n{len(results)} result(s) for '{query}':\n")
+        for r in results:
+            tags_str = ", ".join(r["tags"])
+            click.echo(f"[{r['date']}] {r['person_name']} — {tags_str}")
+            if r["matching_takeaways"]:
+                for t in r["matching_takeaways"]:
+                    click.echo(f"  - {t}")
+            if r["transcript_quotes"]:
+                for q in r["transcript_quotes"]:
+                    click.echo(f"  Quote:")
+                    for line in q.split("\n"):
+                        click.echo(f"    {line}")
+            click.echo()
+
+
+@cli.group()
+def aggregate():
+    """Aggregate data across interactions and people."""
+    pass
+
+
+@aggregate.command("tags")
+@click.option("--type", "-t", "person_type", type=click.Choice(["customer", "investor", "competitor"]), help="Filter by person type")
+@click.option("--company", help="Filter by company name")
+@click.option("--industry", help="Filter by industry")
+@click.option("--from", "date_from", help="Start date (YYYY-MM-DD)")
+@click.option("--to", "date_to", help="End date (YYYY-MM-DD)")
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def aggregate_tags_cmd(person_type, company, industry, date_from, date_to, fmt):
+    """Show tag frequency distribution."""
+    import json as json_mod
+
+    ptype = PersonType(person_type) if person_type else None
+    counts = aggregate_tags(
+        person_type=ptype, company=company, industry=industry,
+        date_from=date_from, date_to=date_to,
+    )
+
+    if not counts:
+        click.echo("No interactions found.")
+        return
+
+    if fmt == "json":
+        click.echo(json_mod.dumps(counts, indent=2))
+    else:
+        total = sum(counts.values())
+        click.echo(f"\nTag distribution ({total} total):\n")
+        click.echo(f"{'Tag':<16} {'Count':>6}  Bar")
+        click.echo("-" * 40)
+        max_count = max(counts.values()) if counts else 1
+        for tag, count in counts.items():
+            bar_len = int(count / max_count * 20)
+            bar = "\u2588" * bar_len + "\u2591" * (20 - bar_len)
+            click.echo(f"{tag:<16} {count:>6}  {bar}")
+        click.echo()
+
+
+@aggregate.command("segments")
+@click.option("--by", "by_field", required=True, type=click.Choice(["type", "industry", "company"]), help="Field to group by")
+@click.option("--type", "-t", "person_type", type=click.Choice(["customer", "investor", "competitor"]), help="Filter by person type")
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def aggregate_segments_cmd(by_field, person_type, fmt):
+    """Group people and interactions by a field."""
+    import json as json_mod
+
+    ptype = PersonType(person_type) if person_type else None
+    results = aggregate_segments(by_field=by_field, person_type=ptype)
+
+    if not results:
+        click.echo("No data found.")
+        return
+
+    if fmt == "json":
+        click.echo(json_mod.dumps(results, indent=2))
+    else:
+        click.echo(f"\nSegments by {by_field}:\n")
+        click.echo(f"{'Segment':<30} {'People':>7} {'Interactions':>13}")
+        click.echo("-" * 55)
+        for r in results:
+            click.echo(f"{r['segment']:<30} {r['people']:>7} {r['interactions']:>13}")
         click.echo()
 
 

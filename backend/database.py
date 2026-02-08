@@ -109,6 +109,62 @@ def init_db() -> None:
         ON followups(person_name, status)
     """)
 
+    # FTS5 full-text search indexes
+    cursor.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS interactions_fts USING fts5(
+            takeaways,
+            transcript,
+            content='interactions',
+            content_rowid='id'
+        )
+    """)
+
+    cursor.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS persons_fts USING fts5(
+            state_of_play,
+            background,
+            content='persons',
+            content_rowid='rowid'
+        )
+    """)
+
+    # Triggers to keep FTS in sync
+    for trigger_sql in [
+        """CREATE TRIGGER IF NOT EXISTS interactions_ai AFTER INSERT ON interactions BEGIN
+            INSERT INTO interactions_fts(rowid, takeaways, transcript)
+            VALUES (new.id, new.takeaways, new.transcript);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS interactions_ad AFTER DELETE ON interactions BEGIN
+            INSERT INTO interactions_fts(interactions_fts, rowid, takeaways, transcript)
+            VALUES ('delete', old.id, old.takeaways, old.transcript);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS interactions_au AFTER UPDATE ON interactions BEGIN
+            INSERT INTO interactions_fts(interactions_fts, rowid, takeaways, transcript)
+            VALUES ('delete', old.id, old.takeaways, old.transcript);
+            INSERT INTO interactions_fts(rowid, takeaways, transcript)
+            VALUES (new.id, new.takeaways, new.transcript);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS persons_ai AFTER INSERT ON persons BEGIN
+            INSERT INTO persons_fts(rowid, state_of_play, background)
+            VALUES (new.rowid, new.state_of_play, new.background);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS persons_ad AFTER DELETE ON persons BEGIN
+            INSERT INTO persons_fts(persons_fts, rowid, state_of_play, background)
+            VALUES ('delete', old.rowid, old.state_of_play, old.background);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS persons_au AFTER UPDATE ON persons BEGIN
+            INSERT INTO persons_fts(persons_fts, rowid, state_of_play, background)
+            VALUES ('delete', old.rowid, old.state_of_play, old.background);
+            INSERT INTO persons_fts(rowid, state_of_play, background)
+            VALUES (new.rowid, new.state_of_play, new.background);
+        END""",
+    ]:
+        cursor.execute(trigger_sql)
+
+    # Rebuild FTS indexes to ensure they're in sync
+    cursor.execute("INSERT INTO interactions_fts(interactions_fts) VALUES('rebuild')")
+    cursor.execute("INSERT INTO persons_fts(persons_fts) VALUES('rebuild')")
+
     conn.commit()
     conn.close()
 
@@ -454,6 +510,317 @@ def get_interactions_by_tag(tag: Tag) -> list[Interaction]:
 
     conn.close()
     return interactions
+
+
+def search_interactions(
+    tag: Optional[Tag] = None,
+    person_type: Optional[PersonType] = None,
+    company: Optional[str] = None,
+    industry: Optional[str] = None,
+    person_name: Optional[str] = None,
+    text: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> list[Interaction]:
+    """Search interactions with multi-dimensional filters."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    conditions = []
+    params = []
+
+    if person_type:
+        conditions.append("p.type = ?")
+        params.append(person_type.value)
+    if company:
+        conditions.append("p.current_company LIKE ?")
+        params.append(f"%{company}%")
+    if industry:
+        conditions.append("p.company_industry LIKE ?")
+        params.append(f"%{industry}%")
+    if person_name:
+        conditions.append("i.person_name LIKE ?")
+        params.append(f"%{person_name}%")
+    if date_from:
+        conditions.append("i.date >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("i.date <= ?")
+        params.append(date_to + "T23:59:59")
+
+    if text:
+        conditions.append("i.id IN (SELECT rowid FROM interactions_fts WHERE interactions_fts MATCH ?)")
+        params.append(_fts_query(text))
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    query = f"""
+        SELECT i.* FROM interactions i
+        JOIN persons p ON i.person_name = p.name
+        WHERE {where}
+        ORDER BY i.date DESC
+    """
+
+    cursor.execute(query, params)
+    interactions = []
+    for row in cursor.fetchall():
+        tags = json.loads(row["tags"])
+        if tag and tag.value not in tags:
+            continue
+        interactions.append(
+            Interaction(
+                id=row["id"],
+                person_name=row["person_name"],
+                date=datetime.fromisoformat(row["date"]),
+                transcript=json.loads(row["transcript"]),
+                takeaways=json.loads(row["takeaways"]),
+                tags=[Tag(t) for t in tags],
+            )
+        )
+
+    conn.close()
+    return interactions
+
+
+def search_persons(
+    person_type: Optional[PersonType] = None,
+    company: Optional[str] = None,
+    industry: Optional[str] = None,
+    text: Optional[str] = None,
+) -> list[Person]:
+    """Search persons with filters."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    conditions = []
+    params = []
+
+    if person_type:
+        conditions.append("p.type = ?")
+        params.append(person_type.value)
+    if company:
+        conditions.append("p.current_company LIKE ?")
+        params.append(f"%{company}%")
+    if industry:
+        conditions.append("p.company_industry LIKE ?")
+        params.append(f"%{industry}%")
+    if text:
+        conditions.append("p.rowid IN (SELECT rowid FROM persons_fts WHERE persons_fts MATCH ?)")
+        params.append(_fts_query(text))
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    query = f"SELECT * FROM persons p WHERE {where} ORDER BY p.name"
+    cursor.execute(query, params)
+
+    persons = []
+    for row in cursor.fetchall():
+        cursor.execute(
+            "SELECT id FROM interactions WHERE person_name = ? ORDER BY date",
+            (row["name"],),
+        )
+        interaction_ids = [r["id"] for r in cursor.fetchall()]
+        connections = _fetch_connections(cursor, row["name"])
+        persons.append(Person.from_dict(dict(row), interaction_ids, connections))
+
+    conn.close()
+    return persons
+
+
+def _fts_query(query: str) -> str:
+    """Convert a plain search query into an FTS5 query with prefix matching."""
+    # Split into words, add prefix matching to each
+    words = query.strip().split()
+    if not words:
+        return query
+    # Use prefix matching on last word, exact on others
+    # e.g. "frustrat" -> "frustrat*", "pain point" -> "pain point*"
+    terms = []
+    for w in words:
+        # Skip if already has FTS operators
+        if any(c in w for c in '*"()'):
+            terms.append(w)
+        else:
+            terms.append(f'"{w}"*')
+    return " ".join(terms)
+
+
+def search_text(query: str) -> list[dict]:
+    """Full-text search across transcripts and takeaways. Returns excerpts with context."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    fts_query = _fts_query(query)
+
+    cursor.execute("""
+        SELECT i.id, i.person_name, i.date, i.tags, i.takeaways, i.transcript,
+               snippet(interactions_fts, 1, '>>>', '<<<', '...', 64) as transcript_snippet
+        FROM interactions_fts
+        JOIN interactions i ON i.id = interactions_fts.rowid
+        WHERE interactions_fts MATCH ?
+        ORDER BY rank
+    """, (fts_query,))
+
+    results = []
+    for row in cursor.fetchall():
+        # Extract matching takeaways as clean text instead of FTS snippet of JSON
+        takeaways = json.loads(row["takeaways"])
+        query_lower = query.lower()
+        matching_takeaways = [t for t in takeaways if query_lower in t.lower()]
+
+        # Extract clean transcript quotes around the match
+        transcript_quotes = _extract_transcript_quotes(
+            json.loads(row["transcript"]), query
+        )
+
+        results.append({
+            "id": row["id"],
+            "person_name": row["person_name"],
+            "date": row["date"][:10],
+            "tags": json.loads(row["tags"]),
+            "matching_takeaways": matching_takeaways,
+            "transcript_quotes": transcript_quotes,
+        })
+
+    conn.close()
+    return results
+
+
+def _extract_transcript_quotes(transcript: dict, query: str, context_lines: int = 2) -> list[str]:
+    """Extract speaker-attributed quotes from transcript around search matches."""
+    utterances = transcript.get("utterances", [])
+    if not utterances:
+        # Plain text transcript
+        text = transcript.get("text", "")
+        if not text:
+            return []
+        lines = text.split("\n")
+        query_lower = query.lower()
+        quotes = []
+        for i, line in enumerate(lines):
+            if query_lower in line.lower():
+                start = max(0, i - context_lines)
+                end = min(len(lines), i + context_lines + 1)
+                quotes.append("\n".join(lines[start:end]))
+                if len(quotes) >= 3:
+                    break
+        return quotes
+
+    query_lower = query.lower()
+    quotes = []
+    for i, u in enumerate(utterances):
+        if query_lower in u.get("text", "").lower():
+            # Include surrounding utterances for context
+            start = max(0, i - context_lines)
+            end = min(len(utterances), i + context_lines + 1)
+            quote_lines = []
+            for j in range(start, end):
+                speaker = utterances[j].get("speaker", "Unknown")
+                text = utterances[j].get("text", "")
+                quote_lines.append(f"{speaker}: {text}")
+            quotes.append("\n".join(quote_lines))
+            if len(quotes) >= 3:
+                break
+    return quotes
+
+
+def aggregate_tags(
+    person_type: Optional[PersonType] = None,
+    company: Optional[str] = None,
+    industry: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> dict[str, int]:
+    """Get tag frequency distribution, optionally filtered."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    conditions = []
+    params = []
+
+    if person_type:
+        conditions.append("p.type = ?")
+        params.append(person_type.value)
+    if company:
+        conditions.append("p.current_company LIKE ?")
+        params.append(f"%{company}%")
+    if industry:
+        conditions.append("p.company_industry LIKE ?")
+        params.append(f"%{industry}%")
+    if date_from:
+        conditions.append("i.date >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("i.date <= ?")
+        params.append(date_to + "T23:59:59")
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    query = f"""
+        SELECT i.tags FROM interactions i
+        JOIN persons p ON i.person_name = p.name
+        WHERE {where}
+    """
+    cursor.execute(query, params)
+
+    tag_counts: dict[str, int] = {}
+    for row in cursor.fetchall():
+        for tag in json.loads(row["tags"]):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    conn.close()
+    return dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True))
+
+
+def aggregate_segments(
+    by_field: str,
+    person_type: Optional[PersonType] = None,
+) -> list[dict]:
+    """Group people or interactions by a field and count."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    field_map = {
+        "type": "p.type",
+        "industry": "p.company_industry",
+        "company": "p.current_company",
+    }
+
+    col = field_map.get(by_field)
+    if not col:
+        conn.close()
+        return []
+
+    conditions = []
+    params = []
+    if person_type:
+        conditions.append("p.type = ?")
+        params.append(person_type.value)
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    query = f"""
+        SELECT {col} as segment,
+               COUNT(DISTINCT p.name) as people,
+               COUNT(i.id) as interactions
+        FROM persons p
+        LEFT JOIN interactions i ON i.person_name = p.name
+        WHERE {where} AND {col} != ''
+        GROUP BY {col}
+        ORDER BY interactions DESC
+    """
+    cursor.execute(query, params)
+
+    results = []
+    for row in cursor.fetchall():
+        results.append({
+            "segment": row["segment"],
+            "people": row["people"],
+            "interactions": row["interactions"],
+        })
+
+    conn.close()
+    return results
 
 
 def create_followups(
