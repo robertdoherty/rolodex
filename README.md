@@ -17,7 +17,7 @@ rolodex/
 │   ├── vfs.py                  # Virtual filesystem resolver
 │   ├── shell.py                # Interactive REPL shell
 │   ├── config.py               # Configuration and enums
-│   ├── models.py               # Data classes (Person, Interaction, InteractionAnalysis, RollingUpdate)
+│   ├── models.py               # Data classes (Person, Interaction, Followup, InteractionAnalysis, RollingUpdate)
 │   ├── database.py             # SQLite storage layer
 │   ├── prompts.py              # LLM prompt templates
 │   ├── local_secrets.py        # API keys (gitignored)
@@ -41,6 +41,8 @@ Rolodex exposes data as a navigable virtual filesystem. People are directories, 
 /John_Doe/background                   # static bio
 /John_Doe/state                        # AI-generated state_of_play
 /John_Doe/delta                        # last_delta
+/John_Doe/connections                  # linked people
+/John_Doe/followups                    # open action items
 /John_Doe/interactions/                # lists interactions by date
 /John_Doe/interactions/2026-01-05/     # single interaction dir
 /John_Doe/interactions/2026-01-05/transcript
@@ -53,30 +55,7 @@ Rolodex exposes data as a navigable virtual filesystem. People are directories, 
 
 ## Data Model
 
-```mermaid
-erDiagram
-    persons ||--o{ interactions : "has many"
-    persons {
-        text name PK "Primary identifier"
-        text current_company "Organization affiliation"
-        text type "customer | investor | competitor"
-        text background "Static bio / context"
-        text linkedin_url "LinkedIn profile URL"
-        text company_industry "Company industry"
-        text company_revenue "Company revenue"
-        text company_headcount "Company headcount"
-        text state_of_play "AI-updated rolling summary (~200 words)"
-        text last_delta "What changed in most recent meeting"
-    }
-    interactions {
-        integer id PK "Auto-generated"
-        text person_name FK "References persons.name"
-        text date "ISO 8601 date string"
-        text transcript "JSON: speaker-tagged utterances"
-        text takeaways "JSON: list of 3-7 insight strings"
-        text tags "JSON: list of 1-3 tag strings"
-    }
-```
+Four tables: `persons` → `interactions` (one-to-many), `connections` (person-to-person links), and `followups` (tied to both a person and an interaction).
 
 ### Person
 
@@ -93,6 +72,7 @@ The core entity representing an individual contact:
 - **state_of_play**: AI-generated ~200-word rolling summary that evolves with each interaction
 - **last_delta**: What changed in the most recent meeting
 - **interaction_ids** (derived, not stored): List of linked interaction IDs, populated by querying the interactions table
+- **connections** (derived, not stored): Names of connected persons, populated from the connections table
 
 ### Interaction
 
@@ -113,6 +93,23 @@ A single recorded conversation:
 - **takeaways**: 3-7 key insights extracted by LLM (stored as JSON array)
 - **tags**: 1-3 thematic tags (stored as JSON array of strings)
 
+### Connection
+
+A bidirectional link between two people:
+
+- **person_a**, **person_b** (composite PK): Both reference `persons.name`, stored with `person_a < person_b` to prevent duplicates
+
+### Followup
+
+An action item extracted from an interaction:
+
+- **id** (PK): Auto-incremented integer
+- **person_name** (FK): References `persons.name`
+- **interaction_id** (FK): References `interactions.id`
+- **date_slug**: Date slug matching VFS convention (e.g. `2026-01-05` or `2026-01-05_2`)
+- **item**: Short action item text
+- **status**: `open` or `complete`
+
 ### Internal Dataclasses
 
 These are used within the pipeline but not persisted directly:
@@ -122,22 +119,7 @@ These are used within the pipeline but not persisted directly:
 
 ## Pipeline Flow
 
-Rolodex supports two ingestion paths that converge into a shared pipeline:
-
-```mermaid
-flowchart TD
-    A["Audio/Video File\n(.mp4, .m4a, .wav, etc.)"] --> B["1. Extract Audio & Transcribe\n(ffmpeg + AssemblyAI diarization)"]
-    B --> C["2. Identify Subject Speaker\n(LLM determines which speaker letter is the subject)"]
-
-    T["Text Transcript\n(.txt, .md)"] --> U["1. Read Transcript File"]
-    U --> V["2. Diarize & Identify Subject\n(Single LLM call: segment into speaker utterances + identify subject)"]
-
-    C --> D["3. Relabel Speakers\n(Subject → real name, others → Interviewer N)"]
-    V --> D
-    D --> E["4. Analyze Interaction\n(LLM extracts takeaways + tags from subject's statements)"]
-    E --> F["5. Generate Rolling Update\n(LLM compares old state_of_play with new takeaways)"]
-    F --> G["6. Store Interaction & Update Person State"]
-```
+Rolodex supports two ingestion paths (audio/video recordings and plain-text transcripts) that converge into a shared 7-step pipeline. After speaker identification, both paths relabel speakers, analyze the interaction, generate a rolling update, store results, and extract follow-up action items.
 
 ### Step Details
 
@@ -163,6 +145,7 @@ flowchart TD
 | 4. Rolling Update | `analysis.py` | Yes (`RollingUpdateSchema`) | Delta + updated state |
 | 5. Store Interaction | `database.py` | No | Interaction row in SQLite |
 | 6. Update Person | `database.py` | No | Updated person row in SQLite |
+| 7. Extract Follow-ups | `analysis.py` | Yes (`FollowupExtractionSchema`) | Action items stored in followups table |
 
 After speaker identification (step 2), speakers are relabeled: the subject gets their real name, others become "Interviewer 1", "Interviewer 2", etc.
 
@@ -216,6 +199,8 @@ info
 background
 state
 delta
+connections
+followups
 interactions/
 
 rolodex:/John_Doe$ cat info
@@ -239,12 +224,16 @@ rolodex:/John_Doe/interactions$ tree /
 │   ├── background
 │   ├── state
 │   ├── delta
+│   ├── connections
+│   ├── followups
 │   └── interactions/
 └── John_Doe/
     ├── info
     ├── background
     ├── state
     ├── delta
+    ├── connections
+    ├── followups
     └── interactions/
 ```
 
@@ -257,10 +246,13 @@ Shell commands:
 | `cat <path>` | Show file contents |
 | `tree [path]` | Show directory tree |
 | `pwd` | Print working directory |
+| `clear` | Clear the screen |
 | `ingest <file> --person <name>` | Ingest a recording |
 | `mkperson <name> --company <c> --type <t>` | Create a person |
 | `search tag <tag>` | Search interactions by tag |
 | `tags` | List available tags |
+| `followups [person]` | List open follow-ups (infers person from cwd) |
+| `complete [id]` | Mark a follow-up as complete |
 | `help` | Show help |
 | `exit` | Exit the shell |
 
@@ -307,6 +299,25 @@ python main.py person list --type investor
 
 # Show person details and state
 python main.py person show "Jane Doe"
+
+# Connect two people (interactive with tab completion if args omitted)
+python main.py person connect "Jane Doe" "John Doe"
+
+# Remove a connection
+python main.py person disconnect "Jane Doe" "John Doe"
+```
+
+### Interaction Management
+
+```bash
+# Delete an interaction (interactive prompts for person and date slug)
+python main.py interaction delete
+
+# Delete with flags
+python main.py interaction delete --person "Jane Doe" --date 2026-01-05
+
+# Skip confirmation
+python main.py interaction delete --person "Jane Doe" --date 2026-01-05 -y
 ```
 
 ### Ingestion
@@ -333,6 +344,27 @@ python main.py transcript "Jane Doe"
 python main.py transcript "Jane Doe" --id 1
 ```
 
+### Follow-ups
+
+Follow-ups are action items automatically extracted during ingestion. They can also be retroactively extracted from existing interactions.
+
+```bash
+# List open follow-ups for a person
+python main.py followup list "Jane Doe"
+
+# Mark a follow-up as complete by ID
+python main.py followup complete 3
+
+# Mark complete interactively (pick person, then pick from list)
+python main.py followup complete --person "Jane Doe"
+
+# Retroactively extract follow-ups from existing interactions
+python main.py followup add                                    # fully interactive
+python main.py followup add -p "Jane Doe"                     # pick interactions interactively
+python main.py followup add -p "Jane Doe" -d 2026-01-05       # specific interaction(s)
+python main.py followup add -p "Jane Doe" --all               # all interactions
+```
+
 ### Search & Discovery
 
 ```bash
@@ -355,12 +387,12 @@ python main.py tags
 | `backend/vfs.py` | Virtual filesystem resolver — maps paths to database content |
 | `backend/shell.py` | Interactive REPL with prompt_toolkit (tab completion, history) |
 | `backend/config.py` | Constants, enums (PersonType, Tag), model token limits |
-| `backend/models.py` | Dataclass definitions (Person, Interaction, InteractionAnalysis, RollingUpdate) |
+| `backend/models.py` | Dataclass definitions (Person, Interaction, Followup, InteractionAnalysis, RollingUpdate) |
 | `backend/database.py` | SQLite CRUD operations |
 | `backend/prompts.py` | LLM prompt templates |
 | `backend/services/transcription.py` | Audio extraction (ffmpeg), speaker diarization (AssemblyAI) |
-| `backend/services/analysis.py` | LLM-powered analysis: speaker ID, transcript diarization, interaction analysis, rolling updates |
-| `backend/services/ingestion.py` | Pipeline orchestration (recording + transcript paths, shared 6-step flow) |
+| `backend/services/analysis.py` | LLM-powered analysis: speaker ID, transcript diarization, interaction analysis, rolling updates, followup extraction |
+| `backend/services/ingestion.py` | Pipeline orchestration (recording + transcript paths, shared 7-step flow) |
 
 ## Configuration
 
@@ -374,6 +406,7 @@ Key settings in `backend/config.py`:
 | `ANALYSIS_MAX_TOKENS` | `16384` | Max output tokens for interaction analysis |
 | `ROLLING_UPDATE_MAX_TOKENS` | `4096` | Max output tokens for rolling updates |
 | `DIARIZATION_MAX_TOKENS` | `16384` | Max output tokens for transcript diarization |
+| `FOLLOWUP_MAX_TOKENS` | `2048` | Max output tokens for followup extraction |
 | `DATABASE_PATH` | `data/rolodex.db` | SQLite database location |
 | `AUDIO_FORMAT` | `wav` | Extracted audio format |
 | `AUDIO_SAMPLE_RATE` | `16000` | Audio sample rate |

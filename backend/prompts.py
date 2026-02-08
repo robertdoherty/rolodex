@@ -118,6 +118,8 @@ Write a concise 1-2 sentence bio. No filler — just who they are and what matte
 
 FOLLOWUP_EXTRACTION_PROMPT = """You are extracting action items and next steps from a conversation transcript.
 
+You are writing follow-ups from the perspective of the INTERVIEWER (the person conducting the conversation), NOT from the subject's perspective.
+
 ## Subject
 {subject_name} (Speaker {subject_speaker})
 
@@ -125,20 +127,22 @@ FOLLOWUP_EXTRACTION_PROMPT = """You are extracting action items and next steps f
 {transcript}
 
 ## Instructions
-1. Identify concrete action items and next steps that emerged from this conversation
-2. Include commitments made by EITHER party (both the subject and the interviewer)
-3. Each item must be very short and concise — no more than 7-8 words
-4. Use imperative form (verb-first), e.g. "Send pricing proposal to John"
-5. Only include clear, actionable commitments — not vague intentions
-6. Return an empty list if no clear action items were found
+1. Identify concrete next steps the interviewer should take after this conversation
+2. Frame every item as what the INTERVIEWER needs to do — their follow-up actions
+3. If the subject offered something (e.g. intros, resources, info), frame it as the interviewer following up to get it
+4. If the interviewer made a commitment, frame it as the interviewer fulfilling that commitment
+5. Each item must be very short and concise — no more than 7-8 words
+6. Use imperative form (verb-first)
+7. Only include clear, actionable items — not vague intentions
+8. Return an empty list if no clear action items were found
 
 Examples of good items:
 - "Send pricing proposal by Friday"
-- "Schedule demo with engineering team"
-- "Share competitor analysis deck"
-- "Intro to VP of Sales"
+- "Schedule demo with their engineering team"
+- "Get intro to their VP of Sales"
+- "Follow up on technician referrals"
 
-Examples of bad items (too vague or too long):
+Examples of bad items (wrong perspective or too vague):
+- "Link interviewer to willing technicians" (written from subject's perspective)
 - "Think about possibly exploring options for partnership"
-- "Send over the detailed pricing proposal document that includes all tier options and volume discounts by end of next week"
 """
