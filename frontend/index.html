@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rolodex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Design Tokens ── */
+:root {
+  --bg-deep: #0f172a;
+  --bg-card: #1e293b;
+  --bg-hover: #253349;
+  --bg-selected: #1a2744;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #f59e0b;
+  --accent-dim: rgba(245, 158, 11, 0.15);
+  --border: #334155;
+  --border-light: #475569;
+
+  --type-customer: #60a5fa;
+  --type-investor: #34d399;
+  --type-competitor: #fb7185;
+
+  --tag-pricing: #ef4444;
+  --tag-product: #3b82f6;
+  --tag-gtm: #22c55e;
+  --tag-competitors: #f59e0b;
+  --tag-market: #a855f7;
+
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --sidebar-left-width: 260px;
+  --sidebar-right-width: 300px;
+  --handle-width: 5px;
+  --sidebar-left-min: 180px;
+  --sidebar-left-max: 400px;
+  --sidebar-right-min: 200px;
+  --sidebar-right-max: 500px;
+
+  --radius: 8px;
+  --radius-sm: 4px;
+}
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input { font-family: inherit; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+/* ── Grid Layout ── */
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-left-width) var(--handle-width) 1fr var(--handle-width) var(--sidebar-right-width);
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── Resize Handles ── */
+.resize-handle {
+  background: var(--border);
+  cursor: col-resize;
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s;
+}
+.resize-handle:hover, .resize-handle.active {
+  background: var(--accent);
+}
+
+/* ── Left Sidebar ── */
+.sidebar-left {
+  background: var(--bg-deep);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.logo {
+  padding: 20px 16px 12px;
+  font-family: var(--font-display);
+  font-size: 28px;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+.logo span { color: var(--accent); }
+.search-box {
+  padding: 0 12px 10px;
+  flex-shrink: 0;
+}
+.search-box input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.search-box input::placeholder { color: var(--text-muted); }
+.search-box input:focus { border-color: var(--accent); }
+
+.type-filters {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.type-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.type-pill:hover { border-color: var(--text-secondary); color: var(--text-secondary); }
+.type-pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+.person-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 0 12px;
+}
+.person-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: all 0.12s;
+}
+.person-item:hover { background: var(--bg-hover); }
+.person-item.selected {
+  background: var(--bg-selected);
+  border-left-color: var(--accent);
+}
+.person-info { flex: 1; min-width: 0; }
+.person-name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.person-company {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.person-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.interaction-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Badges ── */
+.type-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.type-badge.customer { background: rgba(96, 165, 250, 0.15); color: var(--type-customer); }
+.type-badge.investor { background: rgba(52, 211, 153, 0.15); color: var(--type-investor); }
+.type-badge.competitor { background: rgba(251, 113, 133, 0.15); color: var(--type-competitor); }
+
+.tag-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.tag-badge.pricing { border-color: var(--tag-pricing); color: var(--tag-pricing); }
+.tag-badge.product { border-color: var(--tag-product); color: var(--tag-product); }
+.tag-badge.gtm { border-color: var(--tag-gtm); color: var(--tag-gtm); }
+.tag-badge.competitors { border-color: var(--tag-competitors); color: var(--tag-competitors); }
+.tag-badge.market { border-color: var(--tag-market); color: var(--tag-market); }
+
+/* ── Middle Panel ── */
+.middle-panel {
+  background: var(--bg-deep);
+  overflow-y: auto;
+  padding: 24px 32px;
+  min-width: 0;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  gap: 12px;
+}
+.empty-state-icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+.empty-state-text {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-style: italic;
+}
+
+/* ── Person Detail ── */
+.person-header {
+  margin-bottom: 24px;
+}
+.person-header-name {
+  font-family: var(--font-display);
+  font-size: 36px;
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+.person-header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.person-header-company {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.person-header-linkedin a {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.info-item {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+}
+.info-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.info-value {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.section-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+.section-body {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+/* ── Interaction Timeline ── */
+.timeline-header {
+  font-family: var(--font-display);
+  font-size: 22px;
+  margin: 28px 0 16px;
+}
+.interaction-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.interaction-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.interaction-date {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.interaction-tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.interaction-takeaway {
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Interaction Detail ── */
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 0;
+  margin-bottom: 16px;
+  transition: color 0.15s;
+}
+.back-button:hover { color: var(--accent); }
+
+.takeaway-list {
+  list-style: none;
+  margin-bottom: 24px;
+}
+.takeaway-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.takeaway-item:last-child { border-bottom: none; }
+.takeaway-item::before {
+  content: "\2022";
+  color: var(--accent);
+  margin-right: 10px;
+}
+
+.transcript-section {
+  margin-top: 24px;
+}
+.transcript-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+.utterance {
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+.speaker-name {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.utterance-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* ── Right Sidebar ── */
+.sidebar-right {
+  background: var(--bg-deep);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 20px 16px;
+  min-width: 0;
+}
+.sidebar-section {
+  margin-bottom: 24px;
+}
+.sidebar-section-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+/* ── Stats Overview ── */
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 32px;
+  color: var(--accent);
+}
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.bar-chart { margin-top: 8px; }
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.bar-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 80px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.bar-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.type-breakdown {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.type-stat {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  flex: 1;
+  min-width: 70px;
+  text-align: center;
+}
+.type-stat-count {
+  font-family: var(--font-display);
+  font-size: 24px;
+}
+.type-stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── Followups ── */
+.followup-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.followup-item:last-child { border-bottom: none; }
+.followup-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.followup-checkbox:hover { border-color: var(--accent); }
+.followup-checkbox.completing {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.followup-checkbox.completing::after {
+  content: "\2713";
+  color: var(--bg-deep);
+  font-size: 11px;
+  font-weight: 700;
+}
+.followup-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+.followup-date {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Connections ── */
+.connection-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-size: 15px;
+  transition: all 0.12s;
+}
+.connection-item:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn 0.2s ease-out; }
+
+/* ── Speaker Colors ── */
+.speaker-0 { color: #60a5fa; }
+.speaker-1 { color: #34d399; }
+.speaker-2 { color: #fb7185; }
+.speaker-3 { color: #a78bfa; }
+.speaker-4 { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Left Sidebar -->
+  <div class="sidebar-left">
+    <div class="logo">Rolodex<span>.</span></div>
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Search people...">
+    </div>
+    <div class="type-filters" id="type-filters">
+      <button class="type-pill active" data-type="">All</button>
+      <button class="type-pill" data-type="customer">Customer</button>
+      <button class="type-pill" data-type="investor">Investor</button>
+      <button class="type-pill" data-type="competitor">Competitor</button>
+    </div>
+    <div class="person-list" id="person-list"></div>
+  </div>
+
+  <!-- Left Resize Handle -->
+  <div class="resize-handle" id="handle-left"></div>
+
+  <!-- Middle Panel -->
+  <div class="middle-panel" id="middle-panel">
+    <div class="empty-state">
+      <div class="empty-state-icon">&loz;</div>
+      <div class="empty-state-text">Select a person</div>
+    </div>
+  </div>
+
+  <!-- Right Resize Handle -->
+  <div class="resize-handle" id="handle-right"></div>
+
+  <!-- Right Sidebar -->
+  <div class="sidebar-right" id="right-sidebar"></div>
+</div>
+
+<script>
+// ── State ──
+const state = {
+  selectedPerson: null,
+  selectedInteraction: null,
+  searchQuery: '',
+  typeFilter: '',
+  persons: [],
+  personDetail: null,
+  interactionDetail: null,
+  followups: [],
+  connections: [],
+  stats: null,
+};
+
+// ── Utilities ──
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function typeBadge(type) {
+  if (!type) return '';
+  return `<span class="type-badge ${escHtml(type)}">${escHtml(type)}</span>`;
+}
+
+function tagBadge(tag) {
+  return `<span class="tag-badge ${escHtml(tag)}">${escHtml(tag)}</span>`;
+}
+
+const TAG_COLORS = {
+  pricing: 'var(--tag-pricing)',
+  product: 'var(--tag-product)',
+  gtm: 'var(--tag-gtm)',
+  competitors: 'var(--tag-competitors)',
+  market: 'var(--tag-market)',
+};
+
+const SPEAKER_CLASSES = ['speaker-0', 'speaker-1', 'speaker-2', 'speaker-3', 'speaker-4'];
+
+// ── API ──
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+async function apiPost(path) {
+  const res = await fetch(path, { method: 'POST' });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+async function fetchPersons() {
+  state.persons = await api('/api/persons');
+  renderPersonList();
+}
+
+async function fetchStats() {
+  state.stats = await api('/api/stats');
+  renderRightSidebar();
+}
+
+// ── Actions ──
+async function selectPerson(name) {
+  if (state.selectedPerson === name && !state.selectedInteraction) return;
+  state.selectedPerson = name;
+  state.selectedInteraction = null;
+  state.interactionDetail = null;
+  renderPersonList();
+  renderMiddleLoading();
+
+  const [detail, followups, connections] = await Promise.all([
+    api(`/api/persons/${encodeURIComponent(name)}`),
+    api(`/api/followups/${encodeURIComponent(name)}`),
+    api(`/api/connections/${encodeURIComponent(name)}`),
+  ]);
+
+  state.personDetail = detail;
+  state.followups = followups;
+  state.connections = connections;
+  renderMiddle();
+  renderRightSidebar();
+}
+
+async function selectInteraction(id) {
+  state.selectedInteraction = id;
+  renderMiddleLoading();
+  state.interactionDetail = await api(`/api/interactions/${id}`);
+  renderMiddle();
+}
+
+function goBack() {
+  state.selectedInteraction = null;
+  state.interactionDetail = null;
+  renderMiddle();
+}
+
+function setSearchQuery(q) {
+  state.searchQuery = q;
+  renderPersonList();
+}
+
+function setTypeFilter(type) {
+  state.typeFilter = type;
+  $$('#type-filters .type-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.type === type);
+  });
+  renderPersonList();
+}
+
+async function completeFollowup(id) {
+  const el = document.querySelector(`[data-followup-id="${id}"]`);
+  if (el) {
+    const cb = el.querySelector('.followup-checkbox');
+    cb.classList.add('completing');
+  }
+  state.followups = state.followups.filter(f => f.id !== id);
+  setTimeout(() => renderFollowups(), 300);
+  await apiPost(`/api/followups/${id}/complete`);
+}
+
+// ── Render: Person List ──
+function renderPersonList() {
+  const list = $('#person-list');
+  const q = state.searchQuery.toLowerCase();
+  const filtered = state.persons.filter(p => {
+    if (state.typeFilter && p.type !== state.typeFilter) return false;
+    if (q && !p.name.toLowerCase().includes(q) && !p.current_company.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  list.innerHTML = filtered.map(p => `
+    <div class="person-item ${state.selectedPerson === p.name ? 'selected' : ''}"
+         onclick="selectPerson('${escHtml(p.name).replace(/'/g, "\\'")}')">
+      <div class="person-info">
+        <div class="person-name">${escHtml(p.name)}</div>
+        <div class="person-company">${escHtml(p.current_company)}</div>
+      </div>
+      <div class="person-meta">
+        ${typeBadge(p.type)}
+        <span class="interaction-count">${p.interaction_count} int.</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Render: Middle Panel ──
+function renderMiddleLoading() {
+  $('#middle-panel').innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-text" style="font-style: italic; color: var(--text-muted);">Loading...</div>
+    </div>`;
+}
+
+function renderMiddle() {
+  const panel = $('#middle-panel');
+  if (!state.selectedPerson) {
+    panel.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">&loz;</div>
+        <div class="empty-state-text">Select a person</div>
+      </div>`;
+    return;
+  }
+
+  if (state.selectedInteraction && state.interactionDetail) {
+    renderInteractionDetail(panel);
+    return;
+  }
+
+  if (!state.personDetail) return;
+  renderPersonDetail(panel);
+}
+
+function renderPersonDetail(panel) {
+  const p = state.personDetail;
+  const infoItems = [];
+  if (p.company_industry) infoItems.push({ label: 'Industry', value: p.company_industry });
+  if (p.company_revenue) infoItems.push({ label: 'Revenue', value: p.company_revenue });
+  if (p.company_headcount) infoItems.push({ label: 'Headcount', value: p.company_headcount });
+
+  const interactions = (p.interactions || []).slice().reverse();
+
+  panel.innerHTML = `
+    <div class="fade-in">
+      <div class="person-header">
+        <div class="person-header-name">${escHtml(p.name)}</div>
+        <div class="person-header-row">
+          <span class="person-header-company">${escHtml(p.current_company)}</span>
+          ${typeBadge(p.type)}
+          ${p.linkedin_url ? `<span class="person-header-linkedin"><a href="${escHtml(p.linkedin_url)}" target="_blank" rel="noopener">LinkedIn &nearr;</a></span>` : ''}
+        </div>
+      </div>
+
+      ${infoItems.length ? `
+        <div class="info-grid">
+          ${infoItems.map(i => `
+            <div class="info-item">
+              <div class="info-label">${escHtml(i.label)}</div>
+              <div class="info-value">${escHtml(i.value)}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${p.state_of_play ? `
+        <div class="section-card">
+          <div class="section-title">State of Play</div>
+          <div class="section-body">${escHtml(p.state_of_play)}</div>
+        </div>
+      ` : ''}
+
+      ${p.last_delta ? `
+        <div class="section-card">
+          <div class="section-title">Last Delta</div>
+          <div class="section-body">${escHtml(p.last_delta)}</div>
+        </div>
+      ` : ''}
+
+      <div class="timeline-header">Interactions (${interactions.length})</div>
+      ${interactions.map(i => `
+        <div class="interaction-card" onclick="selectInteraction(${i.id})">
+          <div class="interaction-date">${formatDate(i.date)}</div>
+          <div class="interaction-tags">
+            ${(i.tags || []).map(t => tagBadge(t)).join('')}
+          </div>
+          <div class="interaction-takeaway">${escHtml((i.takeaways || [])[0] || '')}</div>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+function renderInteractionDetail(panel) {
+  const i = state.interactionDetail;
+  const transcript = i.transcript || {};
+  const utterances = transcript.utterances || [];
+  const speakerMap = {};
+  let speakerIdx = 0;
+
+  panel.innerHTML = `
+    <div class="fade-in">
+      <button class="back-button" onclick="goBack()">&larr; Back to ${escHtml(state.selectedPerson)}</button>
+
+      <div class="person-header">
+        <div class="interaction-date" style="font-size: 14px; margin-bottom: 8px;">${formatDate(i.date)}</div>
+        <div class="interaction-tags" style="margin-bottom: 4px;">
+          ${(i.tags || []).map(t => tagBadge(t)).join('')}
+        </div>
+      </div>
+
+      ${(i.takeaways || []).length ? `
+        <div class="section-card">
+          <div class="section-title">Takeaways</div>
+          <ul class="takeaway-list">
+            ${i.takeaways.map(t => `<li class="takeaway-item">${escHtml(t)}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+
+      ${utterances.length ? `
+        <div class="transcript-section">
+          <div class="transcript-title">Transcript</div>
+          ${utterances.map(u => {
+            const speaker = u.speaker || 'Unknown';
+            if (!(speaker in speakerMap)) speakerMap[speaker] = speakerIdx++;
+            const cls = SPEAKER_CLASSES[speakerMap[speaker] % SPEAKER_CLASSES.length];
+            return `
+              <div class="utterance">
+                <div class="speaker-name ${cls}">${escHtml(speaker)}</div>
+                <div class="utterance-text">${escHtml(u.text || '')}</div>
+              </div>`;
+          }).join('')}
+        </div>
+      ` : (transcript.text ? `
+        <div class="transcript-section">
+          <div class="transcript-title">Transcript</div>
+          <div class="section-body">${escHtml(transcript.text)}</div>
+        </div>
+      ` : '')}
+    </div>`;
+}
+
+// ── Render: Right Sidebar ──
+function renderRightSidebar() {
+  const sb = $('#right-sidebar');
+  if (state.selectedPerson) {
+    renderPersonContext(sb);
+  } else {
+    renderOverview(sb);
+  }
+}
+
+function renderOverview(sb) {
+  const s = state.stats;
+  if (!s) { sb.innerHTML = ''; return; }
+
+  const maxTag = Math.max(...Object.values(s.tag_counts || {}), 1);
+
+  sb.innerHTML = `
+    <div class="fade-in">
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Overview</div>
+        <div class="stat-card">
+          <div class="stat-value">${s.total_persons}</div>
+          <div class="stat-label">People</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${s.total_interactions}</div>
+          <div class="stat-label">Interactions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${s.total_open_followups}</div>
+          <div class="stat-label">Open Followups</div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Tags</div>
+        <div class="bar-chart">
+          ${Object.entries(s.tag_counts || {}).map(([tag, count]) => `
+            <div class="bar-row">
+              <div class="bar-label">${escHtml(tag)}</div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width: ${(count / maxTag * 100).toFixed(0)}%; background: ${TAG_COLORS[tag] || 'var(--text-muted)'}"></div>
+              </div>
+              <div class="bar-count">${count}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Types</div>
+        <div class="type-breakdown">
+          ${Object.entries(s.type_counts || {}).map(([type, count]) => `
+            <div class="type-stat">
+              <div class="type-stat-count" style="color: var(--type-${type}, var(--text-primary))">${count}</div>
+              <div class="type-stat-label">${escHtml(type)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderPersonContext(sb) {
+  sb.innerHTML = `
+    <div class="fade-in">
+      <div class="sidebar-section" id="followups-section">
+        <div class="sidebar-section-title">Open Followups</div>
+        <div id="followups-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Connections</div>
+        <div id="connections-list"></div>
+      </div>
+    </div>`;
+  renderFollowups();
+  renderConnections();
+}
+
+function renderFollowups() {
+  const el = $('#followups-list');
+  if (!el) return;
+  if (!state.followups.length) {
+    el.innerHTML = `<div style="color: var(--text-muted); font-size: 13px; font-style: italic;">No open followups</div>`;
+    return;
+  }
+  el.innerHTML = state.followups.map(f => `
+    <div class="followup-item" data-followup-id="${f.id}">
+      <div class="followup-checkbox" onclick="event.stopPropagation(); completeFollowup(${f.id})" title="Mark complete"></div>
+      <div>
+        <div class="followup-text">${escHtml(f.item)}</div>
+        <div class="followup-date">${escHtml(f.date_slug)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderConnections() {
+  const el = $('#connections-list');
+  if (!el) return;
+  if (!state.connections.length) {
+    el.innerHTML = `<div style="color: var(--text-muted); font-size: 13px; font-style: italic;">No connections</div>`;
+    return;
+  }
+  el.innerHTML = state.connections.map(name => `
+    <div class="connection-item" onclick="selectPerson('${escHtml(name).replace(/'/g, "\\'")}')">${escHtml(name)}</div>
+  `).join('');
+}
+
+// ── Resize Handles ──
+function setupResize(handleId, prop, min, max, direction) {
+  const handle = document.getElementById(handleId);
+  const app = document.querySelector('.app');
+
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('active');
+    const startX = e.clientX;
+    const startWidth = parseFloat(getComputedStyle(app).getPropertyValue(prop));
+
+    function onMove(e) {
+      const delta = (e.clientX - startX) * direction;
+      const newWidth = Math.min(max, Math.max(min, startWidth + delta));
+      app.style.setProperty(prop, newWidth + 'px');
+    }
+
+    function onUp() {
+      handle.classList.remove('active');
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    }
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+  });
+}
+
+// ── Init ──
+async function init() {
+  setupResize('handle-left', '--sidebar-left-width', 180, 400, 1);
+  setupResize('handle-right', '--sidebar-right-width', 200, 500, -1);
+
+  $('#search-input').addEventListener('input', (e) => setSearchQuery(e.target.value));
+  $$('#type-filters .type-pill').forEach(btn => {
+    btn.addEventListener('click', () => setTypeFilter(btn.dataset.type));
+  });
+
+  await Promise.all([fetchPersons(), fetchStats()]);
+}
+
+init();
+</script>
+</body>
+</html>
